@@ -47,6 +47,18 @@ impl Router {
         )
     }
 
+    pub fn device_history(&self) -> Result<Value> {
+        self.client.call(
+            "Devices",
+            "get",
+            json!({
+                "expression": ".Active==false",
+                "traverse": "down",
+                "flags": ""
+            }),
+        )
+    }
+
     pub fn networks(&self) -> Result<Value> {
         self.client
             .call("NeMo.Intf.lan", "getMIBs", json!({ "mibs": "wlanvap" }))
@@ -67,6 +79,16 @@ impl Router {
             "getCompleteSchedules",
             json!({ "type": "WLAN" }),
         )
+    }
+
+    pub fn wifi_steering(&self) -> Result<Value> {
+        let master = self
+            .client
+            .call("SSW.Steering.MasterConfig", "get", json!({}))?;
+        let add_on = self
+            .client
+            .call("SSW.FeatureConfig.AddOnMode", "get", json!({}))?;
+        Ok(json!({ "master_config": master, "add_on_mode": add_on }))
     }
 
     pub fn lan(&self) -> Result<Value> {
@@ -119,12 +141,42 @@ impl Router {
         self.client.call("PowerManagement", "get", json!({}))
     }
 
+    pub fn energy_profiles(&self) -> Result<Value> {
+        self.client
+            .call("PowerManagement", "getProfiles", json!({}))
+    }
+
     pub fn forwards(&self) -> Result<Value> {
         self.client.call(
             "Firewall",
             "getPortForwarding",
             json!({ "origin": "webui" }),
         )
+    }
+
+    pub fn upnp_forwards(&self) -> Result<Value> {
+        self.client
+            .call("Firewall", "getPortForwarding", json!({ "origin": "upnp" }))
+    }
+
+    pub fn firewall_details(&self) -> Result<Value> {
+        let level = self.firewall_level()?;
+        let ping = self.client.call(
+            "Firewall",
+            "getRespondToPing",
+            json!({ "sourceInterface": "data" }),
+        )?;
+        let custom_rules =
+            self.client
+                .call("Firewall", "getCustomRule", json!({ "chain": "Custom" }))?;
+        let dmz = self.client.call("Firewall", "getDMZ", json!({}))?;
+
+        Ok(json!({
+            "level": level,
+            "respond_to_ping": ping,
+            "custom_rules": custom_rules,
+            "dmz": dmz,
+        }))
     }
 
     pub fn ipv6(&self) -> Result<Value> {

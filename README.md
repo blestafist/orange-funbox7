@@ -18,7 +18,9 @@ cargo run -- wifi         # состояние Wi-Fi
 cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
 cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
 cargo run -- wifi-schedule # расписание Wi-Fi
+cargo run -- wifi-steering # настройки Smart Wi-Fi
 cargo run -- devices      # таблица активных DHCP-устройств
+cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP
 cargo run -- leases       # закреплённые DHCP-адреса
@@ -26,7 +28,10 @@ cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
 cargo run -- guest        # гостевая Wi-Fi сеть
 cargo run -- energy       # энергосбережение
+cargo run -- energy-profiles # доступные профили энергосбережения
 cargo run -- forwards     # список пробросов портов
+cargo run -- upnp-forwards # динамические пробросы UPnP
+cargo run -- firewall-details # DMZ, ping и пользовательские правила
 cargo run -- ipv6         # параметры IPv6
 cargo run -- time         # время роутера и часовой пояс
 cargo run -- reserve AA:BB:CC:DD:EE:FF 192.168.1.25 # DHCP-резервация

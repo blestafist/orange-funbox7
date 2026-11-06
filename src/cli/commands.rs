@@ -110,17 +110,19 @@ fn string_field<'a>(value: &'a Value, keys: &[&str]) -> &'a str {
         .unwrap_or("—")
 }
 
-fn show_devices(value: &Value) -> Result<()> {
-    let devices = value
-        .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат списка устройств"))?;
+fn show_devices(value: &Value, summary: &str) -> Result<()> {
+    let devices = match value {
+        Value::Array(devices) => devices.iter().collect::<Vec<_>>(),
+        Value::Object(devices) => devices.values().collect::<Vec<_>>(),
+        _ => bail!("роутер вернул неожиданный формат списка устройств"),
+    };
 
     println!(
         "{:<26} {:<16} {:<18} {:<16} СЕТЬ",
         "ИМЯ", "IP", "MAC", "ТИП"
     );
     println!("{}", "─".repeat(88));
-    for device in devices {
+    for device in &devices {
         let fallback_name = device
             .get("BDD")
             .and_then(|bdd| bdd.get("DeviceName"))
@@ -144,7 +146,7 @@ fn show_devices(value: &Value) -> Result<()> {
             network
         );
     }
-    println!("\nВсего активных DHCP-устройств: {}", devices.len());
+    println!("\n{summary}: {}", devices.len());
     Ok(())
 }
 
@@ -357,7 +359,11 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         }
         Command::Devices => {
             let devices = router.devices()?;
-            show_devices(&devices)?;
+            show_devices(&devices, "Активных DHCP-устройств")?;
+        }
+        Command::DeviceHistory => {
+            let devices = router.device_history()?;
+            show_devices(&devices, "Записей об устройствах")?;
         }
         Command::Networks => {
             let networks = router.networks()?;
@@ -374,6 +380,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::WifiSchedule => {
             let schedule = router.wifi_schedule()?;
             println!("{}", pretty_redacted(&schedule)?);
+        }
+        Command::WifiSteering => {
+            let steering = router.wifi_steering()?;
+            println!("{}", pretty_redacted(&steering)?);
         }
         Command::Lan => {
             let lan = router.lan()?;
@@ -409,9 +419,21 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let energy = router.energy()?;
             println!("{}", pretty_redacted(&energy)?);
         }
+        Command::EnergyProfiles => {
+            let profiles = router.energy_profiles()?;
+            println!("{}", pretty_redacted(&profiles)?);
+        }
         Command::Forwards => {
             let forwards = router.forwards()?;
             println!("{}", pretty_redacted(&forwards)?);
+        }
+        Command::UpnpForwards => {
+            let forwards = router.upnp_forwards()?;
+            println!("{}", pretty_redacted(&forwards)?);
+        }
+        Command::FirewallDetails => {
+            let details = router.firewall_details()?;
+            println!("{}", pretty_redacted(&details)?);
         }
         Command::Ipv6 => {
             let settings = router.ipv6()?;

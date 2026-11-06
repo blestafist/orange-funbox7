@@ -41,6 +41,8 @@ pub enum Command {
     Wan,
     /// Список активных DHCP-устройств
     Devices,
+    /// Устройства, ранее подключавшиеся к роутеру
+    DeviceHistory,
     /// SSID, состояние точек доступа и подключённые Wi-Fi-клиенты
     Networks,
     /// LAN-адрес и настройки DHCP
@@ -58,6 +60,10 @@ pub enum Command {
     Energy,
     /// Настроенные пробросы портов
     Forwards,
+    /// Пробросы портов, созданные UPnP
+    UpnpForwards,
+    /// Детали firewall: ping, DMZ и пользовательские правила
+    FirewallDetails,
     /// Добавить DHCP-резервацию для MAC и IPv4
     Reserve { mac: String, ip: String },
     /// Удалить DHCP-резервацию по MAC
@@ -74,6 +80,10 @@ pub enum Command {
     Ipv6,
     /// Системное время и часовой пояс
     Time,
+    /// Профили энергосбережения
+    EnergyProfiles,
+    /// Параметры Smart Wi-Fi / steering
+    WifiSteering,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
