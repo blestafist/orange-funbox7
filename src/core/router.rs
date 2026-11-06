@@ -25,6 +25,15 @@ impl Router {
         self.client.call("DeviceInfo", "get", json!({}))
     }
 
+    pub fn led_status(&self) -> Result<Value> {
+        self.client.call("LED", "getAllLedStatus", json!({}))
+    }
+
+    pub fn users(&self) -> Result<Value> {
+        let users = self.client.call("UserManagement", "getUsers", json!({}))?;
+        Ok(sanitize_users(&users))
+    }
+
     pub fn wan_status(&self) -> Result<Value> {
         self.client.call("NMC", "getWANStatus", json!({}))
     }
@@ -595,13 +604,50 @@ fn is_private_network(network: u32, broadcast: u32) -> bool {
         .any(|(start, end)| network >= *start && broadcast <= *end)
 }
 
+fn sanitize_users(value: &Value) -> Value {
+    let mut users = Vec::new();
+    collect_user_records(value, &mut users);
+    Value::Array(users)
+}
+
+fn collect_user_records(value: &Value, users: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_user_records(entry, users);
+            }
+        }
+        Value::Object(fields) if fields.keys().any(|key| is_public_user_field(key)) => {
+            users.push(Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| is_public_user_field(key))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ));
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_user_records(entry, users);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_public_user_field(key: &str) -> bool {
+    ["name", "enable", "type", "groups"]
+        .iter()
+        .any(|allowed| key.eq_ignore_ascii_case(allowed))
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, validate_forward_name, validate_forward_protocol, validate_lan_config,
-        validate_lan_destination,
+        find_forward, sanitize_users, validate_forward_name, validate_forward_protocol,
+        validate_lan_config, validate_lan_destination,
     };
 
     #[test]
@@ -707,5 +753,27 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn user_output_contains_only_public_fields() {
+        let users = serde_json::json!({
+            "admin": {
+                "Name": "admin",
+                "Enable": true,
+                "Type": "local",
+                "Groups": ["administrators"],
+                "Password": "must-not-leak",
+                "PasswordHash": "also-secret"
+            },
+            "metadata": { "count": 1 }
+        });
+
+        let sanitized = sanitize_users(&users);
+        let serialized = sanitized.to_string();
+        assert!(serialized.contains("admin"));
+        assert!(serialized.contains("administrators"));
+        assert!(!serialized.contains("must-not-leak"));
+        assert!(!serialized.contains("PasswordHash"));
     }
 }

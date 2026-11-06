@@ -335,6 +335,14 @@ fn redact(value: &Value) -> Value {
 pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
     match &cli.command {
         Command::Info => show_info(&router.info()?),
+        Command::Leds => {
+            let leds = router.led_status()?;
+            println!("{}", pretty_redacted(&leds)?);
+        }
+        Command::Users => {
+            let users = router.users()?;
+            println!("{}", pretty_redacted(&users)?);
+        }
         Command::Wan => {
             let status = router.wan_status()?;
             match status.as_bool() {
