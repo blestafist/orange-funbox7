@@ -147,6 +147,10 @@ pub enum Command {
     WifiSchedule,
     /// Устройства, которым назначена блокировка доступа в Интернет
     BlockedDevices,
+    /// Запретить устройству доступ в Интернет
+    BlockDevice { mac: String },
+    /// Снять блокировку доступа в Интернет
+    UnblockDevice { mac: String },
     /// Параметры IPv6
     Ipv6,
     /// Системное время и часовой пояс

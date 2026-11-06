@@ -29,6 +29,8 @@ cargo run -- wifi-radios  # диапазоны, радиомодули и кан
 cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
 cargo run -- wifi-schedule # расписание Wi-Fi
 cargo run -- blocked-devices # устройства с ограничением доступа в Интернет
+cargo run -- block-device AA:BB:CC:DD:EE:FF # заблокировать Интернет, спросит подтверждение
+cargo run -- unblock-device AA:BB:CC:DD:EE:FF # разблокировать, спросит подтверждение
 cargo run -- wifi-steering # настройки Smart Wi-Fi
 cargo run -- iot-status    # состояние IoT-сервиса
 cargo run -- television   # статус IPTV и конфигурация каналов Orange TV
@@ -89,6 +91,7 @@ cargo run -- --host 192.168.1.1 --user admin status
 
 Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, `remote-access`, управление WPS, `wan-stats` и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
 `blocked-devices` показывает только блокировку выхода в Интернет; она не изолирует устройство от других узлов локальной сети.
+`block-device` и `unblock-device` также управляют только доступом в Интернет; обе команды требуют подтверждения.
 
 ## Архитектура
 

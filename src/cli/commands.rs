@@ -427,6 +427,10 @@ fn normalize_mac(value: &str) -> Result<String> {
     {
         bail!("неверный MAC-адрес; ожидается формат AA:BB:CC:DD:EE:FF");
     }
+    let first_octet = u8::from_str_radix(octets[0], 16)?;
+    if first_octet & 1 != 0 {
+        bail!("нужен unicast MAC-адрес конкретного устройства");
+    }
     Ok(value.to_ascii_uppercase())
 }
 
@@ -584,6 +588,28 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::BlockedDevices => {
             let blocked = router.blocked_devices()?;
             show_blocked_devices(&blocked)?;
+        }
+        Command::BlockDevice { mac } => {
+            let mac = normalize_mac(mac)?;
+            let prompt = format!(
+                "Запретить устройству {mac} доступ в Интернет? Доступ к другим устройствам локальной сети останется."
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.block_device(&mac)?;
+            println!("Для {mac} включено ограничение доступа в Интернет.");
+        }
+        Command::UnblockDevice { mac } => {
+            let mac = normalize_mac(mac)?;
+            let prompt = format!("Вернуть устройству {mac} доступ в Интернет?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.unblock_device(&mac)?;
+            println!("Для {mac} восстановлен доступ в Интернет.");
         }
         Command::WifiSteering => {
             let steering = router.wifi_steering()?;
@@ -870,6 +896,7 @@ mod tests {
             normalize_mac("aa:bb:cc:dd:ee:ff").unwrap(),
             "AA:BB:CC:DD:EE:FF"
         );
+        assert!(normalize_mac("01:00:5E:00:00:01").is_err());
         assert!(normalize_mac("aa:bb:cc:dd:ee").is_err());
         assert!(normalize_mac("gg:bb:cc:dd:ee:ff").is_err());
     }

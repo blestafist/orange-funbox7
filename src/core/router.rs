@@ -149,10 +149,57 @@ impl Router {
     }
 
     pub fn blocked_devices(&self) -> Result<Value> {
+        Ok(filter_blocked_schedules(&self.device_schedules()?))
+    }
+
+    pub fn block_device(&self, mac: &str) -> Result<()> {
+        let mac = normalize_mac_address(mac)?;
+        let schedules = self.device_schedules()?;
+        if find_device_schedule(&schedules, &mac).is_some() {
+            self.client.call(
+                "Scheduler",
+                "overrideSchedule",
+                json!({ "type": "ToD", "ID": mac, "override": "Disable" }),
+            )?;
+        } else {
+            self.client.call(
+                "Scheduler",
+                "addSchedule",
+                json!({
+                    "type": "ToD",
+                    "info": {
+                        "ID": mac,
+                        "base": "Weekly",
+                        "def": "Enable",
+                        "schedule": [],
+                        "enable": true,
+                        "override": "Disable"
+                    }
+                }),
+            )?;
+        }
+        Ok(())
+    }
+
+    pub fn unblock_device(&self, mac: &str) -> Result<()> {
+        let mac = normalize_mac_address(mac)?;
+        let schedules = self.device_schedules()?;
+        if find_device_schedule(&schedules, &mac).is_none() {
+            bail!("для устройства {mac} нет расписания ограничения доступа");
+        }
+        self.client.call(
+            "Scheduler",
+            "overrideSchedule",
+            json!({ "type": "ToD", "ID": mac, "override": "Enable" }),
+        )?;
+        Ok(())
+    }
+
+    fn device_schedules(&self) -> Result<Value> {
         let schedules = self
             .client
             .call("Scheduler", "getSchedules", json!({ "type": "ToD" }))?;
-        Ok(sanitize_blocked_devices(&schedules))
+        Ok(sanitize_device_schedules(&schedules))
     }
 
     pub fn wifi_steering(&self) -> Result<Value> {
@@ -841,44 +888,90 @@ fn sanitize_remote_access_status(value: &Value) -> Value {
     )
 }
 
-fn sanitize_blocked_devices(value: &Value) -> Value {
+fn sanitize_device_schedules(value: &Value) -> Value {
     let mut records = Vec::new();
-    collect_blocked_devices(value, &mut records);
+    collect_device_schedules(value, &mut records);
     Value::Array(records)
 }
 
-fn collect_blocked_devices(value: &Value, records: &mut Vec<Value>) {
+fn collect_device_schedules(value: &Value, records: &mut Vec<Value>) {
     match value {
         Value::Array(entries) => {
             for entry in entries {
-                collect_blocked_devices(entry, records);
+                collect_device_schedules(entry, records);
             }
         }
         Value::Object(fields) if fields.keys().any(|key| key.eq_ignore_ascii_case("ID")) => {
-            let blocked = fields.iter().any(|(key, value)| {
-                key.eq_ignore_ascii_case("value") && value.as_str() == Some("Disable")
-            });
-            if blocked {
-                records.push(Value::Object(
-                    fields
-                        .iter()
-                        .filter(|(key, _)| {
-                            ["ID", "enable", "override", "value"]
-                                .iter()
-                                .any(|allowed| key.eq_ignore_ascii_case(allowed))
-                        })
-                        .map(|(key, value)| (key.clone(), value.clone()))
-                        .collect(),
-                ));
-            }
+            records.push(Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| {
+                        ["ID", "enable", "override", "value"]
+                            .iter()
+                            .any(|allowed| key.eq_ignore_ascii_case(allowed))
+                    })
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ));
         }
         Value::Object(fields) => {
             for entry in fields.values() {
-                collect_blocked_devices(entry, records);
+                collect_device_schedules(entry, records);
             }
         }
         _ => {}
     }
+}
+
+fn filter_blocked_schedules(schedules: &Value) -> Value {
+    Value::Array(
+        schedules
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|schedule| is_blocked_schedule(schedule))
+            .cloned()
+            .collect(),
+    )
+}
+
+fn is_blocked_schedule(schedule: &Value) -> bool {
+    schedule.as_object().and_then(|fields| {
+        fields
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("value"))
+            .and_then(|(_, value)| value.as_str())
+    }) == Some("Disable")
+}
+
+fn find_device_schedule<'a>(schedules: &'a Value, mac: &str) -> Option<&'a Value> {
+    schedules.as_array()?.iter().find(|schedule| {
+        schedule
+            .as_object()
+            .and_then(|fields| {
+                fields
+                    .iter()
+                    .find(|(key, _)| key.eq_ignore_ascii_case("ID"))
+                    .and_then(|(_, value)| value.as_str())
+            })
+            .is_some_and(|id| id.eq_ignore_ascii_case(mac))
+    })
+}
+
+fn normalize_mac_address(mac: &str) -> Result<String> {
+    let octets = mac.split(':').collect::<Vec<_>>();
+    if octets.len() != 6
+        || octets
+            .iter()
+            .any(|octet| octet.len() != 2 || !octet.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        bail!("неверный MAC-адрес; ожидается формат AA:BB:CC:DD:EE:FF");
+    }
+    let first_octet = u8::from_str_radix(octets[0], 16)?;
+    if first_octet & 1 != 0 {
+        bail!("для управления устройством нужен unicast MAC-адрес");
+    }
+    Ok(mac.to_ascii_uppercase())
 }
 
 #[cfg(test)]
@@ -886,7 +979,8 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, sanitize_blocked_devices, sanitize_enable_status, sanitize_leases,
+        filter_blocked_schedules, find_device_schedule, find_forward, normalize_mac_address,
+        sanitize_device_schedules, sanitize_enable_status, sanitize_leases,
         sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
         sanitize_wan_stats, validate_forward_name, validate_forward_protocol, validate_lan_config,
         validate_lan_destination,
@@ -1126,9 +1220,22 @@ mod tests {
             ]
         });
 
-        let blocked = sanitize_blocked_devices(&schedules);
+        let schedules = sanitize_device_schedules(&schedules);
+        let blocked = filter_blocked_schedules(&schedules);
         assert_eq!(blocked.as_array().unwrap().len(), 1);
         assert_eq!(blocked[0]["ID"], "AA:BB:CC:DD:EE:FF");
         assert!(!blocked.to_string().contains("must-not-leak"));
+        assert!(find_device_schedule(&schedules, "aa:bb:cc:dd:ee:ff").is_some());
+        assert!(find_device_schedule(&schedules, "FF:FF:FF:FF:FF:FF").is_none());
+    }
+
+    #[test]
+    fn validates_unicast_mac_addresses_for_device_controls() {
+        assert_eq!(
+            normalize_mac_address("aa:bb:cc:dd:ee:ff").unwrap(),
+            "AA:BB:CC:DD:EE:FF"
+        );
+        assert!(normalize_mac_address("01:00:5E:00:00:01").is_err());
+        assert!(normalize_mac_address("invalid").is_err());
     }
 }
