@@ -120,8 +120,11 @@ pub enum Command {
     ForwardRemove { name: String },
     /// Пробросы портов, созданные UPnP
     UpnpForwards,
-    /// Включён ли UPnP-шлюз
-    UpnpStatus,
+    /// Показать или изменить доступность UPnP-шлюза
+    Upnp {
+        #[arg(value_enum)]
+        action: Option<WifiAction>,
+    },
     /// Детали firewall: ping, DMZ и пользовательские правила
     FirewallDetails,
     /// Читать или менять ответ firewall на ping из Интернета

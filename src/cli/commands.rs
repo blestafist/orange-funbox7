@@ -785,7 +785,24 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let forwards = router.upnp_forwards()?;
             println!("{}", pretty_redacted(&forwards)?);
         }
-        Command::UpnpStatus => {
+        Command::Upnp { action: None } => {
+            let status = router.upnp_status()?;
+            println!("{}", pretty_redacted(&status)?);
+        }
+        Command::Upnp {
+            action: Some(action),
+        } => {
+            let enabled = matches!(action, WifiAction::On);
+            let prompt = if enabled {
+                "Разрешить устройствам автоматически открывать входящие порты через UPnP? Это может повысить риск доступа из Интернета."
+            } else {
+                "Запретить устройствам автоматически открывать порты? Некоторые приложения могут потерять входящие соединения."
+            };
+            if !cli.yes && !confirm_action(prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_upnp_enabled(enabled)?;
             let status = router.upnp_status()?;
             println!("{}", pretty_redacted(&status)?);
         }

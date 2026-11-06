@@ -363,6 +363,14 @@ impl Router {
         Ok(sanitize_enable_status(&status))
     }
 
+    pub fn set_upnp_enabled(&self, enabled: bool) -> Result<Value> {
+        self.client.call(
+            "UPnP-IGD",
+            "set",
+            json!({ "parameters": { "Enable": enabled } }),
+        )
+    }
+
     pub fn firewall_ping_response(&self) -> Result<Value> {
         self.client.call(
             "Firewall",
