@@ -2,7 +2,7 @@
 name = "funbox7"
 version = "0.1.0"
 edition = "2024"
-description = "CLI для локального управления роутером Orange Funbox 7"
+description = "CLI for managing the Orange Funbox 7 router locally"
 license = "MIT"
 
 [dependencies]

@@ -4,9 +4,9 @@ use std::net::Ipv6Addr;
 mod commands;
 
 #[derive(Debug, Parser)]
-#[command(name = "funbox7", version, about = "CLI для Orange Funbox 7")]
+#[command(name = "funbox7", version, about = "CLI for Orange Funbox 7")]
 pub struct Cli {
-    /// Адрес роутера (без http://), по умолчанию 192.168.1.1
+    /// Router address (without http://); defaults to 192.168.1.1
     #[arg(
         long,
         env = "FUNBOX_HOST",
@@ -15,11 +15,11 @@ pub struct Cli {
     )]
     pub host: String,
 
-    /// Имя пользователя веб-панели
+    /// Web interface username
     #[arg(long, env = "FUNBOX_USER", default_value = "admin", global = true)]
     pub user: String,
 
-    /// Не спрашивать подтверждение перед изменением настроек
+    /// Do not ask for confirmation before changing settings
     #[arg(long, global = true)]
     pub yes: bool,
 
@@ -29,61 +29,61 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// Краткая сводка: модель, интернет и Wi-Fi
+    /// Brief summary: model, Internet, and Wi-Fi
     Status,
-    /// Модель, прошивка, время работы и число перезагрузок
+    /// Model, firmware, uptime, and number of reboots
     Info,
-    /// Состояние световых индикаторов роутера
+    /// Router LED status
     Leds,
-    /// Список пользователей панели без секретных полей
+    /// List of interface users, excluding secret fields
     Users,
-    /// Список поддерживаемых DynDNS-провайдеров
+    /// List supported DynDNS providers
     DdnsServices,
-    /// Список DynDNS-хостов (пароли и имена пользователей не выводятся)
+    /// List DynDNS hosts (passwords and usernames are not shown)
     DdnsHosts,
-    /// Добавить DynDNS-хост; пароль запрашивается скрытым вводом
+    /// Add a DynDNS host; the password is requested with hidden input
     DdnsAdd {
         service: String,
         hostname: String,
         username: String,
     },
-    /// Удалить DynDNS-хост
+    /// Remove a DynDNS host
     DdnsRemove { hostname: String },
-    /// Статус Wi-Fi и WPS; `on` или `off` меняет состояние радио
+    /// Wi-Fi and WPS status; `on` or `off` changes the radio state
     Wifi {
         #[arg(value_enum)]
         action: Option<WifiAction>,
     },
-    /// Статус Open Mode Wi-Fi
+    /// Open Mode Wi-Fi status
     WifiOpenMode,
-    /// Показать статус WPS или изменить его с подтверждением
+    /// Show WPS status or change it with confirmation
     Wps {
         #[arg(value_enum)]
         action: Option<WifiAction>,
     },
-    /// Состояние подключения к интернету
+    /// Internet connection status
     Wan,
-    /// Счётчики переданных и принятых байт на WAN
+    /// WAN bytes sent and received counters
     WanStats,
-    /// Статус интернет-соединения из dashboard
+    /// Internet connection status from the dashboard
     InternetState,
-    /// Список активных DHCP-устройств
+    /// List active DHCP devices
     Devices,
-    /// Сводный список устройств Wi-Fi, Ethernet, USB и DECT
+    /// Summary of Wi-Fi, Ethernet, USB, and DECT devices
     AllDevices,
-    /// Найти активное устройство по MAC-адресу
+    /// Find an active device by MAC address
     Device { mac: String },
-    /// Устройства, ранее подключавшиеся к роутеру
+    /// Devices previously connected to the router
     DeviceHistory,
-    /// SSID, состояние точек доступа и подключённые Wi-Fi-клиенты
+    /// SSIDs, access point status, and connected Wi-Fi clients
     Networks,
-    /// Расширенная конфигурация Wi-Fi (ключи скрыты)
+    /// Extended Wi-Fi configuration (keys are hidden)
     WifiConfig,
-    /// Список активных Wi-Fi-клиентов через Devices API
+    /// List active Wi-Fi clients via the Devices API
     WifiClients,
-    /// LAN-адрес и настройки DHCP
+    /// LAN address and DHCP settings
     Lan,
-    /// Изменить LAN-адрес и DHCP-диапазон (потребуется переподключение)
+    /// Change the LAN address and DHCP range (reconnection required)
     LanSet {
         address: std::net::Ipv4Addr,
         netmask: std::net::Ipv4Addr,
@@ -92,42 +92,42 @@ pub enum Command {
         #[arg(long, value_enum)]
         dhcp: DhcpAction,
     },
-    /// Сводные параметры LAN-интерфейсов
+    /// Summary of LAN interface settings
     NetworkDetails,
-    /// WAN, IPv6, VLAN, MTU и сведения PPP провайдера
+    /// WAN, IPv6, VLAN, MTU, and ISP PPP details
     InternetDetails,
-    /// Список закреплённых DHCP-адресов
+    /// List reserved DHCP addresses
     Leases,
-    /// Текущие DHCP-аренды (динамические и зарезервированные)
+    /// Current DHCP leases (dynamic and reserved)
     CurrentLeases,
-    /// Параметры DHCP-пула, включая срок аренды и DNS
+    /// DHCP pool settings, including lease duration and DNS
     DhcpSettings,
-    /// Изменить срок действия DHCP-адреса (с подтверждением)
+    /// Change the DHCP lease duration (with confirmation)
     DhcpLeaseTime { seconds: u32 },
-    /// Текущий уровень firewall или задать новый
+    /// Show or set the current firewall level
     Firewall {
         #[arg(value_enum)]
         level: Option<FirewallLevel>,
     },
-    /// Показать или задать уровень firewall для IPv6
+    /// Show or set the IPv6 firewall level
     FirewallIpv6 {
         #[arg(value_enum)]
         level: Option<FirewallLevel>,
     },
-    /// Статус удалённого доступа к панели
+    /// Remote access status for the interface
     RemoteAccess,
-    /// Отключить управление роутером из Интернета
+    /// Disable router management over the Internet
     RemoteAccessDisable,
-    /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
+    /// Guest Wi-Fi status; on/off controls the network
     Guest {
         #[arg(value_enum)]
         action: Option<GuestAction>,
     },
-    /// Энергосбережение и режим питания
+    /// Energy-saving and power settings
     Energy,
-    /// Настроенные пробросы портов
+    /// Configured port forwards
     Forwards,
-    /// Создать проброс порта с подтверждением
+    /// Create a port forward with confirmation
     ForwardAdd {
         name: String,
         ip: String,
@@ -136,31 +136,31 @@ pub enum Command {
         #[arg(long, value_enum, default_value = "tcp")]
         protocol: ForwardProtocol,
     },
-    /// Удалить проброс порта по имени
+    /// Remove a port forward by name
     ForwardRemove { name: String },
-    /// Пробросы портов, созданные UPnP
+    /// Port forwards created by UPnP
     UpnpForwards,
-    /// Показать или изменить доступность UPnP-шлюза
+    /// Show or change UPnP gateway availability
     Upnp {
         #[arg(value_enum)]
         action: Option<WifiAction>,
     },
-    /// Детали firewall: ping, DMZ и пользовательские правила
+    /// Firewall details: ping, DMZ, and custom rules
     FirewallDetails,
-    /// Читать или менять ответ firewall на ping из Интернета
+    /// Read or change the firewall response to pings from the Internet
     FirewallPing {
         #[arg(value_enum)]
         action: Option<WifiAction>,
     },
-    /// Текущее правило DMZ
+    /// Current DMZ rule
     Dmz,
-    /// Направить весь входящий трафик на частный LAN-адрес
+    /// Route all incoming traffic to a private LAN address
     DmzSet { destination: std::net::Ipv4Addr },
-    /// Удалить правило DMZ
+    /// Remove the DMZ rule
     DmzClear,
-    /// Список правил входящего доступа IPv6
+    /// List IPv6 inbound access rules
     Ipv6Pinholes,
-    /// Открыть порт извне на IPv6-устройстве (потребуется подтверждение)
+    /// Open an external port on an IPv6 device (confirmation required)
     Ipv6PinholeAdd {
         name: String,
         destination: Ipv6Addr,
@@ -169,67 +169,67 @@ pub enum Command {
         #[arg(long, value_enum, default_value = "tcp")]
         protocol: PinholeProtocol,
     },
-    /// Удалить правило входящего доступа IPv6 по имени
+    /// Remove an IPv6 inbound access rule by name
     Ipv6PinholeRemove { name: String },
-    /// Добавить DHCP-резервацию для MAC и IPv4
+    /// Add a DHCP reservation for a MAC and IPv4 address
     Reserve { mac: String, ip: String },
-    /// Удалить DHCP-резервацию по MAC
+    /// Remove a DHCP reservation by MAC address
     Unreserve { mac: String },
-    /// Перезагрузить роутер
+    /// Reboot the router
     Reboot,
-    /// Подробная статистика Wi-Fi (байты приёма/передачи)
+    /// Detailed Wi-Fi statistics (bytes received/sent)
     WifiStats,
-    /// Радиомодули Wi-Fi, диапазоны и доступные каналы
+    /// Wi-Fi radios, bands, and available channels
     WifiRadios,
-    /// Расписание включения и выключения Wi-Fi
+    /// Wi-Fi on/off schedule
     WifiSchedule,
-    /// Статус расписания Wi-Fi-репитера
+    /// Wi-Fi repeater schedule status
     RepeaterSchedule,
-    /// Статус расписаний индикаторов и режимов энергосбережения
+    /// LED and energy-saving schedule status
     PowerSchedules,
-    /// Устройства, которым назначена блокировка доступа в Интернет
+    /// Devices blocked from Internet access
     BlockedDevices,
-    /// Запретить устройству доступ в Интернет
+    /// Block a device from accessing the Internet
     BlockDevice { mac: String },
-    /// Снять блокировку доступа в Интернет
+    /// Unblock a device's Internet access
     UnblockDevice { mac: String },
-    /// Параметры IPv6
+    /// IPv6 settings
     Ipv6,
-    /// Системное время и часовой пояс
+    /// System time and time zone
     Time,
-    /// Показать или изменить часовой пояс
+    /// Show or change the time zone
     TimeZone { timezone: Option<String> },
-    /// Список серверов синхронизации времени
+    /// List time synchronization servers
     NtpServers,
-    /// Дата последней копии конфигурации у оператора
+    /// Date of the last configuration backup at the ISP
     BackupStatus,
-    /// Профили энергосбережения
+    /// Energy-saving profiles
     EnergyProfiles,
-    /// Параметры Smart Wi-Fi / steering
+    /// Smart Wi-Fi / steering settings
     WifiSteering,
-    /// Статус IoT-сервиса роутера
+    /// Router IoT service status
     IotStatus,
-    /// Статус IoT Wi-Fi-точек доступа из dashboard
+    /// IoT Wi-Fi access point status from the dashboard
     WifiIotStatus,
-    /// Категории, порядок плиток и избранное главного dashboard
+    /// Categories, tile order, and favorites on the main dashboard
     DashboardTiles,
-    /// Проверить, установлен ли пароль администратора, без его вывода
+    /// Check whether an administrator password is set without revealing it
     AdminPasswordState,
-    /// Показать язык интерфейса, заданный в роутере
+    /// Show the interface language configured on the router
     Language,
-    /// Добавить или убрать плитку dashboard из избранного
+    /// Add or remove a dashboard tile from favorites
     DashboardFavorite {
         tile: String,
         #[arg(value_enum)]
         action: FavoriteAction,
     },
-    /// Состояние IPTV и параметры каналов Orange TV
+    /// IPTV status and Orange TV channel settings
     Television,
-    /// Статус IPTV из dashboard
+    /// IPTV status from the dashboard
     IptvStatus,
-    /// Конфигурация телефонии; пароли в ответе маскируются
+    /// Telephony configuration; passwords in the response are masked
     Voice,
-    /// Сводка телефонной линии и числа пропущенных звонков без деталей журнала
+    /// Phone line and missed call summary, without call log details
     PhoneStatus,
 }
 

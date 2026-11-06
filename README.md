@@ -1,127 +1,127 @@
 # funbox7
 
-Небольшая Rust CLI-утилита для локального управления Orange Funbox 7 через API веб-панели `/ws`.
+A small Rust CLI utility for managing an Orange Funbox 7 locally through the web interface API at `/ws`.
 
-## Сборка
+## Build
 
 ```sh
 cargo build --release
 ```
 
-## Команды
+## Commands
 
 ```sh
-cargo run -- status       # модель, WAN и Wi-Fi
-cargo run -- dashboard-tiles # категории, порядок плиток и избранное dashboard
-cargo run -- admin-password-state # проверить, не используется ли пароль по умолчанию
-cargo run -- language # показать язык интерфейса роутера
-cargo run -- internet-state # состояние интернет-соединения, как на плитке dashboard
-cargo run -- repeater-schedule # статус расписания Wi-Fi-репитера
-cargo run -- power-schedules # расписания LED, Wi-Fi и энергосбережения
-cargo run -- wifi-iot-status # включены ли IoT Wi-Fi-точки доступа
-cargo run -- iptv-status # статус IPTV-плитки
-cargo run -- phone-status # статус линии и число пропущенных звонков без номеров
-cargo run -- dashboard-favorite wifiAdvanced on # добавить плитку в избранное, спросит подтверждение
-cargo run -- dashboard-favorite wifiAdvanced off # убрать из избранного, спросит подтверждение
-cargo run -- info         # модель, прошивка, аптайм и число перезагрузок
-cargo run -- leds         # состояния световых индикаторов
-cargo run -- users        # пользователи панели, только безопасные поля
-cargo run -- ddns-services # список поддерживаемых DynDNS-провайдеров
-cargo run -- ddns-hosts   # настроенные DDNS-хосты без учётных данных
-cargo run -- ddns-add NoIP myhost.example.net myuser # добавление спросит подтверждение и скрытый пароль провайдера
-cargo run -- ddns-remove myhost.example.net # удалить DDNS-хост, спросит подтверждение
-cargo run -- wan          # состояние подключения
-cargo run -- wan-stats    # счётчики входящего и исходящего трафика
-cargo run -- wifi         # состояние Wi-Fi и WPS, если поле доступно
-cargo run -- wps          # статус WPS
-cargo run -- wps off      # отключить WPS с подтверждением
-cargo run -- wps on       # включить WPS с предупреждением и подтверждением
-cargo run -- wifi-open-mode # статус Open Mode без вывода SSID
-cargo run -- wifi-config  # расширенные параметры точек доступа (секреты скрыты)
-cargo run -- wifi-clients # активные Wi-Fi-клиенты
-cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
-cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
-cargo run -- wifi-schedule # расписание Wi-Fi
-cargo run -- blocked-devices # устройства с ограничением доступа в Интернет
-cargo run -- block-device AA:BB:CC:DD:EE:FF # заблокировать Интернет, спросит подтверждение
-cargo run -- unblock-device AA:BB:CC:DD:EE:FF # разблокировать, спросит подтверждение
-cargo run -- wifi-steering # настройки Smart Wi-Fi
-cargo run -- iot-status    # состояние IoT-сервиса
-cargo run -- television   # статус IPTV и конфигурация каналов Orange TV
-cargo run -- voice        # настройки телефонии с маскировкой паролей
-cargo run -- devices      # таблица активных DHCP-устройств
-cargo run -- all-devices  # Wi-Fi, Ethernet, USB и DECT
-cargo run -- device AA:BB:CC:DD:EE:FF # карточка активного устройства по MAC
-cargo run -- device-history # ранее подключавшиеся устройства
-cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
-cargo run -- lan          # LAN-адрес и DHCP
-cargo run -- lan-set 192.168.1.1 255.255.255.0 192.168.1.50 192.168.1.200 --dhcp on # спросит подтверждение
-cargo run -- network-details # LAN-интерфейсы и радио
-cargo run -- internet-details # WAN, IPv6, VLAN, MTU и сведения PPP (если доступны)
-cargo run -- leases       # закреплённые DHCP-адреса
-cargo run -- current-leases # текущие DHCP-аренды
-cargo run -- dhcp-settings # настройки DHCP-пула, срок аренды и DNS
-cargo run -- dhcp-lease-time 86400 # установить срок аренды в секундах, спросит подтверждение
-cargo run -- firewall     # уровень firewall
-cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
-cargo run -- guest        # состояние и параметры гостевой Wi-Fi сети
-cargo run -- guest on     # включить гостевую Wi-Fi без таймера, спросит подтверждение
-cargo run -- guest off    # выключить гостевую сеть, спросит подтверждение
-cargo run -- energy       # энергосбережение
-cargo run -- energy-profiles # доступные профили энергосбережения
-cargo run -- forwards     # список пробросов портов
-cargo run -- forward-add web 192.168.1.25 443 443 --protocol tcp # создаёт проброс с подтверждением
-cargo run -- forward-remove web # удаляет проброс с подтверждением
-cargo run -- upnp-forwards # динамические пробросы UPnP
-cargo run -- upnp off  # отключить автоматическое открытие портов, спросит подтверждение
-cargo run -- upnp on   # включить UPnP, спросит подтверждение
-cargo run -- firewall-details # DMZ, ping и пользовательские правила
-cargo run -- firewall-ipv6 # текущий уровень фильтрации IPv6
-cargo run -- firewall-ipv6 high # изменить уровень, спросит подтверждение
-cargo run -- remote-access # статус удалённого доступа к панели (без адресов и секретов)
-cargo run -- remote-access-disable # отключить удалённое управление, спросит подтверждение
-cargo run -- firewall-ping # состояние ответа на ping
-cargo run -- firewall-ping on # включить ответ на ping, спросит подтверждение
-cargo run -- dmz # показать правило DMZ
-cargo run -- dmz-set 192.168.1.25 # направить входящий трафик на хост, спросит подтверждение
-cargo run -- dmz-clear # снять DMZ, спросит подтверждение
-cargo run -- ipv6-pinholes # список открытых IPv6 pinhole-правил
-cargo run -- ipv6-pinhole-add web-server fd12:3456:789a::10 AA:BB:CC:DD:EE:FF 443 --protocol tcp # открыть порт, спросит подтверждение
-cargo run -- ipv6-pinhole-remove web-server # удалить правило, спросит подтверждение
-cargo run -- ipv6         # параметры IPv6
-cargo run -- time         # время роутера и часовой пояс
-cargo run -- time-zone    # текущий часовой пояс
-cargo run -- time-zone Europe/Paris # изменить часовой пояс, спросит подтверждение
-cargo run -- ntp-servers  # серверы синхронизации времени
-cargo run -- backup-status # дата последней копии конфигурации у оператора
-cargo run -- reserve AA:BB:CC:DD:EE:FF 192.168.1.25 # DHCP-резервация
-cargo run -- unreserve AA:BB:CC:DD:EE:FF # удалить резервацию
-cargo run -- wifi on      # включить Wi-Fi, спросит подтверждение
-cargo run -- wifi off     # выключить Wi-Fi, спросит подтверждение
-cargo run -- reboot       # перезагрузить роутер, спросит подтверждение
+cargo run -- status       # model, WAN, and Wi-Fi
+cargo run -- dashboard-tiles # dashboard categories, tile order, and favorites
+cargo run -- admin-password-state # check whether the default password is in use
+cargo run -- language # show the router's interface language
+cargo run -- internet-state # Internet connection state, as shown on the dashboard tile
+cargo run -- repeater-schedule # Wi-Fi repeater schedule status
+cargo run -- power-schedules # LED, Wi-Fi, and power-saving schedules
+cargo run -- wifi-iot-status # whether IoT Wi-Fi access points are enabled
+cargo run -- iptv-status # IPTV tile status
+cargo run -- phone-status # line status and number of missed calls, without phone numbers
+cargo run -- dashboard-favorite wifiAdvanced on # add a tile to favorites; confirmation required
+cargo run -- dashboard-favorite wifiAdvanced off # remove a tile from favorites; confirmation required
+cargo run -- info         # model, firmware, uptime, and reboot count
+cargo run -- leds         # indicator light states
+cargo run -- users        # web interface users; safe fields only
+cargo run -- ddns-services # list supported DynDNS providers
+cargo run -- ddns-hosts   # configured DDNS hosts, without credentials
+cargo run -- ddns-add NoIP myhost.example.net myuser # asks for confirmation and the provider password (hidden input)
+cargo run -- ddns-remove myhost.example.net # remove a DDNS host; confirmation required
+cargo run -- wan          # connection status
+cargo run -- wan-stats    # inbound and outbound traffic counters
+cargo run -- wifi         # Wi-Fi and WPS status, if the field is available
+cargo run -- wps          # WPS status
+cargo run -- wps off      # disable WPS; confirmation required
+cargo run -- wps on       # enable WPS; warning and confirmation required
+cargo run -- wifi-open-mode # Open Mode status, without displaying the SSID
+cargo run -- wifi-config  # advanced access point settings (secrets are hidden)
+cargo run -- wifi-clients # active Wi-Fi clients
+cargo run -- wifi-radios  # bands, radios, and channels
+cargo run -- wifi-stats   # Wi-Fi bytes received/transmitted
+cargo run -- wifi-schedule # Wi-Fi schedule
+cargo run -- blocked-devices # devices restricted from Internet access
+cargo run -- block-device AA:BB:CC:DD:EE:FF # block Internet access; confirmation required
+cargo run -- unblock-device AA:BB:CC:DD:EE:FF # restore Internet access; confirmation required
+cargo run -- wifi-steering # Smart Wi-Fi settings
+cargo run -- iot-status    # IoT service status
+cargo run -- television   # IPTV status and Orange TV channel configuration
+cargo run -- voice        # telephony settings with passwords masked
+cargo run -- devices      # table of active DHCP devices
+cargo run -- all-devices  # Wi-Fi, Ethernet, USB, and DECT
+cargo run -- device AA:BB:CC:DD:EE:FF # details for an active device by MAC address
+cargo run -- device-history # previously connected devices
+cargo run -- networks     # access points and connected Wi-Fi clients
+cargo run -- lan          # LAN address and DHCP
+cargo run -- lan-set 192.168.1.1 255.255.255.0 192.168.1.50 192.168.1.200 --dhcp on # confirmation required
+cargo run -- network-details # LAN interfaces and radio
+cargo run -- internet-details # WAN, IPv6, VLAN, MTU, and PPP details (if available)
+cargo run -- leases       # reserved DHCP addresses
+cargo run -- current-leases # current DHCP leases
+cargo run -- dhcp-settings # DHCP pool, lease duration, and DNS settings
+cargo run -- dhcp-lease-time 86400 # set lease duration in seconds; confirmation required
+cargo run -- firewall     # firewall level
+cargo run -- firewall high # change firewall level; confirmation required
+cargo run -- guest        # guest Wi-Fi status and settings
+cargo run -- guest on     # enable guest Wi-Fi without a timer; confirmation required
+cargo run -- guest off    # disable the guest network; confirmation required
+cargo run -- energy       # power saving
+cargo run -- energy-profiles # available power-saving profiles
+cargo run -- forwards     # list port forwards
+cargo run -- forward-add web 192.168.1.25 443 443 --protocol tcp # create a port forward; confirmation required
+cargo run -- forward-remove web # remove a port forward; confirmation required
+cargo run -- upnp-forwards # dynamic UPnP port forwards
+cargo run -- upnp off  # disable automatic port opening; confirmation required
+cargo run -- upnp on   # enable UPnP; confirmation required
+cargo run -- firewall-details # DMZ, ping, and custom rules
+cargo run -- firewall-ipv6 # current IPv6 filtering level
+cargo run -- firewall-ipv6 high # change the level; confirmation required
+cargo run -- remote-access # remote access status (no addresses or secrets)
+cargo run -- remote-access-disable # disable remote management; confirmation required
+cargo run -- firewall-ping # ping response status
+cargo run -- firewall-ping on # enable ping responses; confirmation required
+cargo run -- dmz # show the DMZ rule
+cargo run -- dmz-set 192.168.1.25 # route incoming traffic to a host; confirmation required
+cargo run -- dmz-clear # clear the DMZ; confirmation required
+cargo run -- ipv6-pinholes # list open IPv6 pinhole rules
+cargo run -- ipv6-pinhole-add web-server fd12:3456:789a::10 AA:BB:CC:DD:EE:FF 443 --protocol tcp # open a port; confirmation required
+cargo run -- ipv6-pinhole-remove web-server # remove a rule; confirmation required
+cargo run -- ipv6         # IPv6 settings
+cargo run -- time         # router time and time zone
+cargo run -- time-zone    # current time zone
+cargo run -- time-zone Europe/Paris # change the time zone; confirmation required
+cargo run -- ntp-servers  # time synchronization servers
+cargo run -- backup-status # date of the last configuration backup by the provider
+cargo run -- reserve AA:BB:CC:DD:EE:FF 192.168.1.25 # DHCP reservation
+cargo run -- unreserve AA:BB:CC:DD:EE:FF # remove a reservation
+cargo run -- wifi on      # enable Wi-Fi; confirmation required
+cargo run -- wifi off     # disable Wi-Fi; confirmation required
+cargo run -- reboot       # reboot the router; confirmation required
 ```
 
-Адрес и имя пользователя можно переопределить флагами или переменными `FUNBOX_HOST` и `FUNBOX_USER`. Пароль по умолчанию запрашивается скрытым вводом; его можно передать через `FUNBOX_PASSWORD` для автоматизации, но безопаснее не хранить его в shell history или файлах.
+The address and username can be overridden with flags or the `FUNBOX_HOST` and `FUNBOX_USER` environment variables. By default, the password is requested with hidden input; you can pass it through `FUNBOX_PASSWORD` for automation, but it is safer not to store it in shell history or files.
 
 ```sh
 cargo run -- --host 192.168.1.1 --user admin status
 ```
 
-`--yes` пропускает подтверждение изменения настроек. Не используй `wifi off`, если управляешь роутером по Wi-Fi: соединение с CLI оборвётся.
+`--yes` skips confirmation when changing settings. Do not use `wifi off` if you are managing the router over Wi-Fi: the CLI connection will be lost.
 
-Команды изменения параметров специально требуют подтверждения. `--yes` предназначен для осознанной автоматизации; особенно осторожно используй его с `wifi off` и `reboot`.
+Commands that change settings intentionally require confirmation. `--yes` is intended for deliberate automation; use it with particular care with `wifi off` and `reboot`.
 
-Для `forward-add` и `dmz-set` адрес назначения проверяется по текущей частной LAN-подсети. `lan-set` принимает только подсети RFC 1918; это помогает избежать потери доступа к панели и ошибочной маршрутизации.
+For `forward-add` and `dmz-set`, the destination address is checked against the current private LAN subnet. `lan-set` accepts only RFC 1918 subnets; this helps prevent losing access to the web interface and avoids incorrect routing.
 
-Клиент хранит сессионную cookie только в памяти на время запуска, отправляет `releaseContext` при завершении команды и не сохраняет пароль или токен в проекте. API этой прошивки доступен по HTTP, поэтому запускай CLI только из доверенной локальной сети.
-Пароль DDNS-провайдера для `ddns-add` вводится скрыто; CLI не выводит его и подавляет детали API-ошибок такого запроса. Передача всё равно идёт по HTTP к роутеру — используй команду только в доверенной локальной сети.
+The client keeps the session cookie in memory only for the duration of the run, sends `releaseContext` when the command exits, and does not store the password or token in the project. This firmware's API is available over HTTP, so run the CLI only on a trusted local network.
+The DDNS provider password for `ddns-add` is entered without being displayed; the CLI does not print it and suppresses API error details for this request. It is still sent to the router over HTTP, so use this command only on a trusted local network.
 
-Некоторые редкие методы (управление UPnP, IPv6 pinholes, DDNS-хосты, установка часового пояса, `firewall-ipv6`, `remote-access`, `backup-status`, управление WPS, `wan-stats`, срок DHCP-аренды и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
-Управление плитками dashboard использует вызовы из загрузчика WebUI этой прошивки, но запись настроек ещё не проверена на роутере.
-`internet-state`, `power-schedules`, `repeater-schedule`, `wifi-iot-status`, `iptv-status` и `phone-status` используют точные read-only вызовы из публичных tile-модулей WebUI Funbox 7; авторизованные runtime-вызовы на роутере пока не проверены.
-`blocked-devices` показывает только блокировку выхода в Интернет; она не изолирует устройство от других узлов локальной сети.
-`block-device` и `unblock-device` также управляют только доступом в Интернет; обе команды требуют подтверждения.
+Some less common methods (UPnP management, IPv6 pinholes, DDNS hosts, time zone changes, `firewall-ipv6`, `remote-access`, `backup-status`, WPS management, `wan-stats`, DHCP lease duration, and others) have been cross-checked against APIs from related Livebox/Funbox generations, but have not yet been tested on Funbox 7 `ARF7-pl-01.01.05.27`. If the firmware does not support them, the command will return an API error.
+Dashboard tile management uses calls from this firmware's WebUI bootstrapper, but writing settings has not yet been tested on the router.
+`internet-state`, `power-schedules`, `repeater-schedule`, `wifi-iot-status`, `iptv-status`, and `phone-status` use the exact read-only calls from the public Funbox 7 WebUI tile modules; authenticated runtime calls have not yet been tested on the router.
+`blocked-devices` reports only restrictions on Internet access; it does not isolate a device from other devices on the local network.
+`block-device` and `unblock-device` also control Internet access only; both commands require confirmation.
 
-## Архитектура
+## Architecture
 
-`core` содержит API-клиент и общие операции роутера; `cli` — аргументы, подтверждения и отображение результатов. Другой транспортный интерфейс, например MCP, сможет использовать `core` без зависимости от CLI.
+`core` contains the API client and shared router operations; `cli` handles arguments, confirmations, and displaying results. Another transport interface, such as MCP, can use `core` without depending on the CLI.

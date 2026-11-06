@@ -18,69 +18,63 @@ pub fn password() -> Result<String> {
     {
         return Ok(value);
     }
-    rpassword::prompt_password("Пароль роутера: ").context("не удалось прочитать пароль")
+    rpassword::prompt_password("Router password: ").context("failed to read password")
 }
 
 fn confirm_wifi_change(enabled: bool) -> Result<bool> {
     if enabled {
-        print!("Включить Wi-Fi на роутере? [д/Н] ");
+        print!("Enable Wi-Fi on the router? [y/N] ");
     } else {
-        print!("Выключить Wi-Fi? Подключённые по Wi-Fi устройства потеряют связь. [д/Н] ");
+        print!("Disable Wi-Fi? Devices connected over Wi-Fi will lose connectivity. [y/N] ");
     }
     io::stdout()
         .flush()
-        .context("не удалось вывести запрос подтверждения")?;
+        .context("failed to display confirmation prompt")?;
     let mut answer = String::new();
     io::stdin()
         .read_line(&mut answer)
-        .context("не удалось прочитать подтверждение")?;
-    Ok(matches!(
-        answer.trim().to_lowercase().as_str(),
-        "д" | "да" | "y" | "yes"
-    ))
+        .context("failed to read confirmation")?;
+    Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
 fn confirm_action(prompt: &str) -> Result<bool> {
-    print!("{prompt} [д/Н] ");
+    print!("{prompt} [y/N] ");
     io::stdout()
         .flush()
-        .context("не удалось вывести запрос подтверждения")?;
+        .context("failed to display confirmation prompt")?;
     let mut answer = String::new();
     io::stdin()
         .read_line(&mut answer)
-        .context("не удалось прочитать подтверждение")?;
-    Ok(matches!(
-        answer.trim().to_lowercase().as_str(),
-        "д" | "да" | "y" | "yes"
-    ))
+        .context("failed to read confirmation")?;
+    Ok(matches!(answer.trim().to_lowercase().as_str(), "y" | "yes"))
 }
 
 fn show_info(value: &Value) {
     println!(
-        "Модель: {}",
+        "Model: {}",
         value
             .get("ProductClass")
             .and_then(Value::as_str)
-            .unwrap_or("неизвестно")
+            .unwrap_or("unknown")
     );
     println!(
-        "Прошивка: {}",
+        "Firmware: {}",
         value
             .get("SoftwareVersion")
             .and_then(Value::as_str)
-            .unwrap_or("неизвестна")
+            .unwrap_or("unknown")
     );
     if let Some(version) = value
         .get("AdditionalSoftwareVersion")
         .and_then(Value::as_str)
     {
-        println!("Доп. версия: {version}");
+        println!("Additional version: {version}");
     }
     if let Some(seconds) = unsigned_field(value, &["UpTime", "Uptime"]) {
-        println!("Время работы: {}", format_uptime(seconds));
+        println!("Uptime: {}", format_uptime(seconds));
     }
     if let Some(reboots) = unsigned_field(value, &["NumberOfReboots"]) {
-        println!("Перезагрузок: {reboots}");
+        println!("Reboots: {reboots}");
     }
 }
 
@@ -99,33 +93,29 @@ fn format_uptime(seconds: u64) -> String {
     let hours = (seconds % 86_400) / 3_600;
     let minutes = (seconds % 3_600) / 60;
     if days > 0 {
-        format!("{days} дн. {hours} ч. {minutes} мин.")
+        format!("{days}d {hours}h {minutes}m")
     } else {
-        format!("{hours} ч. {minutes} мин.")
+        format!("{hours}h {minutes}m")
     }
 }
 
 fn show_wifi(value: &Value) {
     print!("Wi-Fi: ");
     match value.get("Enable").and_then(Value::as_bool) {
-        Some(true) => println!("включён"),
-        Some(false) => println!("выключен"),
-        None => println!("состояние неизвестно"),
+        Some(true) => println!("enabled"),
+        Some(false) => println!("disabled"),
+        None => println!("unknown state"),
     }
     if let Some(active) = value.get("Status").and_then(Value::as_bool) {
-        println!("Радио активно: {}", if active { "да" } else { "нет" });
+        println!("Radio active: {}", if active { "yes" } else { "no" });
     }
     if let Some(state) = value.get("CurrentState").and_then(Value::as_str) {
-        println!("Состояние: {state}");
+        println!("State: {state}");
     }
     if let Some(scheduled) = value.get("SchedulingEnabled").and_then(Value::as_bool) {
         println!(
-            "Расписание: {}",
-            if scheduled {
-                "включено"
-            } else {
-                "выключено"
-            }
+            "Schedule: {}",
+            if scheduled { "enabled" } else { "disabled" }
         );
     }
     if let Some(wps) = value.get("WPSEnable") {
@@ -142,14 +132,14 @@ fn string_field<'a>(value: &'a Value, keys: &[&str]) -> &'a str {
 
 fn show_devices(value: &Value, summary: &str) -> Result<()> {
     if !value.is_array() && !value.is_object() {
-        bail!("роутер вернул неожиданный формат списка устройств");
+        bail!("router returned an unexpected device list format");
     }
     let mut devices = Vec::new();
     collect_device_records(value, &mut devices);
 
     println!(
-        "{:<26} {:<16} {:<18} {:<16} СЕТЬ",
-        "ИМЯ", "IP", "MAC", "ТИП"
+        "{:<26} {:<16} {:<18} {:<16} NETWORK",
+        "NAME", "IP", "MAC", "TYPE"
     );
     println!("{}", "─".repeat(88));
     for device in &devices {
@@ -181,22 +171,22 @@ fn show_devices(value: &Value, summary: &str) -> Result<()> {
 }
 
 fn show_device(value: &Value) {
-    println!("Имя: {}", string_field(value, &["Name", "DeviceName"]));
+    println!("Name: {}", string_field(value, &["Name", "DeviceName"]));
     println!("IP: {}", string_field(value, &["IPAddress"]));
     println!(
         "MAC: {}",
         string_field(value, &["PhysAddress", "MACAddress"])
     );
     println!(
-        "Тип: {}",
+        "Type: {}",
         string_field(value, &["DeviceType", "DeviceCategory"])
     );
     println!(
-        "Подключение: {}",
+        "Connection: {}",
         string_field(value, &["InterfaceName", "Layer2Interface"])
     );
     if let Some(active) = value.get("Active") {
-        println!("Активно: {}", yes_no_field(Some(active)));
+        println!("Active: {}", yes_no_field(Some(active)));
     }
 }
 
@@ -236,29 +226,29 @@ fn show_networks(value: &Value) -> Result<()> {
     let vaps = value
         .get("wlanvap")
         .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("роутер не вернул список Wi-Fi точек доступа"))?;
+        .ok_or_else(|| anyhow!("router did not return a list of Wi-Fi access points"))?;
 
     for (index, (vap_id, vap)) in vaps.iter().enumerate() {
         if index > 0 {
             println!();
         }
         let band = if vap_id.starts_with("vap2g") {
-            "2.4 ГГц"
+            "2.4 GHz"
         } else if vap_id.starts_with("vap5g") {
-            "5 ГГц"
+            "5 GHz"
         } else if vap_id.starts_with("vap6g") {
-            "6 ГГц"
+            "6 GHz"
         } else {
             vap_id
         };
         println!("{} ({band})", string_field(vap, &["SSID"]));
-        println!("  интерфейс: {vap_id}");
-        println!("  состояние: {}", string_field(vap, &["VAPStatus"]));
+        println!("  interface: {vap_id}");
+        println!("  state: {}", string_field(vap, &["VAPStatus"]));
         let count = vap
             .get("ActiveAssociatedDeviceNumberOfEntries")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        println!("  подключено устройств: {count}");
+        println!("  connected devices: {count}");
 
         if let Some(associated) = vap.get("AssociatedDevice").and_then(Value::as_object) {
             let active = associated
@@ -266,7 +256,7 @@ fn show_networks(value: &Value) -> Result<()> {
                 .filter(|device| device.get("Active").and_then(Value::as_bool) == Some(true))
                 .collect::<Vec<_>>();
             if !active.is_empty() {
-                println!("  клиенты:");
+                println!("  clients:");
                 for device in active {
                     let mac = string_field(device, &["MACAddress"]);
                     let signal = device
@@ -274,7 +264,7 @@ fn show_networks(value: &Value) -> Result<()> {
                         .map(|value| value.to_string())
                         .unwrap_or_else(|| "—".to_owned());
                     let mode = string_field(device, &["OperatingStandard", "Mode"]);
-                    println!("    {mac:<18} сигнал {signal} dBm, {mode}");
+                    println!("    {mac:<18} signal {signal} dBm, {mode}");
                 }
             }
         }
@@ -306,12 +296,12 @@ fn show_lan(value: &Value) -> Result<()> {
 fn show_leases(value: &Value) -> Result<()> {
     let leases = value
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DHCP-резерваций"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected DHCP reservation format"))?;
     if leases.is_empty() {
-        println!("Закреплённых DHCP-адресов нет.");
+        println!("No DHCP addresses are reserved.");
         return Ok(());
     }
-    println!("{:<18} {:<18} ИМЯ", "IP", "MAC");
+    println!("{:<18} {:<18} NAME", "IP", "MAC");
     println!("{}", "─".repeat(60));
     for lease in leases {
         println!(
@@ -327,15 +317,15 @@ fn show_leases(value: &Value) -> Result<()> {
 fn show_current_leases(value: &Value) -> Result<()> {
     let leases = value
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DHCP-аренд"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected DHCP lease format"))?;
     if leases.is_empty() {
-        println!("Текущих DHCP-аренд нет.");
+        println!("No current DHCP leases.");
         return Ok(());
     }
 
     println!(
-        "{:<16} {:<18} {:<24} {:<9} {:<9} ОСТАЛОСЬ, сек",
-        "IP", "MAC", "ИМЯ", "АКТИВНА", "РЕЗЕРВ"
+        "{:<16} {:<18} {:<24} {:<9} {:<9} REMAINING, sec",
+        "IP", "MAC", "NAME", "ACTIVE", "RESERVED"
     );
     println!("{}", "─".repeat(100));
     for lease in leases {
@@ -358,37 +348,37 @@ fn show_current_leases(value: &Value) -> Result<()> {
             remaining
         );
     }
-    println!("\nТекущих арен: {}", leases.len());
+    println!("\nCurrent leases: {}", leases.len());
     Ok(())
 }
 
 fn show_blocked_devices(value: &Value) -> Result<()> {
     let devices = value
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат списка блокировок"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected blocked devices list format"))?;
     if devices.is_empty() {
-        println!("Заблокированных устройств нет.");
+        println!("No blocked devices.");
         return Ok(());
     }
 
-    println!("Устройства без доступа в Интернет:");
+    println!("Devices without Internet access:");
     for device in devices {
         println!("  {}", string_field(device, &["ID"]));
     }
-    println!("Всего: {}", devices.len());
+    println!("Total: {}", devices.len());
     Ok(())
 }
 
 fn show_dynamic_dns_hosts(value: &Value) -> Result<()> {
     let hosts = value
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DynDNS-хостов"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected DynDNS hosts format"))?;
     if hosts.is_empty() {
-        println!("DynDNS-хосты не настроены.");
+        println!("No DynDNS hosts configured.");
         return Ok(());
     }
 
-    println!("{:<40} {:<24} СТАТУС", "ХОСТ", "ПРОВАЙДЕР");
+    println!("{:<40} {:<24} STATUS", "HOST", "PROVIDER");
     println!("{}", "─".repeat(76));
     for host in hosts {
         let status = host
@@ -403,7 +393,7 @@ fn show_dynamic_dns_hosts(value: &Value) -> Result<()> {
             status
         );
     }
-    println!("\nВсего DynDNS-хостов: {}", hosts.len());
+    println!("\nTotal DynDNS hosts: {}", hosts.len());
     Ok(())
 }
 
@@ -411,14 +401,14 @@ fn show_dashboard_tiles(value: &Value) -> Result<()> {
     let categories = value
         .get("categories")
         .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат настроек dashboard"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected dashboard settings format"))?;
     let mut categories = categories.iter().collect::<Vec<_>>();
     categories.sort_by(|left, right| left.0.cmp(right.0));
     for (category, tiles) in categories {
         println!("{category}:");
         let tiles = tiles
             .as_array()
-            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+            .ok_or_else(|| anyhow!("dashboard category {category:?} has an invalid format"))?;
         let mut tiles = tiles.iter().collect::<Vec<_>>();
         tiles.sort_by_key(|tile| {
             tile.get("index")
@@ -426,7 +416,7 @@ fn show_dashboard_tiles(value: &Value) -> Result<()> {
                 .unwrap_or(u64::MAX)
         });
         if tiles.is_empty() {
-            println!("  (пусто)");
+            println!("  (empty)");
         }
         for tile in tiles {
             let favorite = tile.get("isFavorite").and_then(Value::as_bool) == Some(true);
@@ -443,25 +433,25 @@ fn show_dashboard_tiles(value: &Value) -> Result<()> {
 fn show_power_schedules(value: &Value) -> Result<()> {
     let schedules = value
         .as_object()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат расписаний"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected schedules format"))?;
     for (profile, scheduled) in schedules {
         let scheduled = scheduled
             .as_bool()
-            .ok_or_else(|| anyhow!("расписание профиля {profile:?} имеет неверный формат"))?;
+            .ok_or_else(|| anyhow!("schedule for profile {profile:?} has an invalid format"))?;
         let label = match profile.as_str() {
-            "LED" => "Индикаторы",
-            "Light" => "Лёгкий режим энергосбережения",
-            "Deep" => "Глубокий режим энергосбережения",
+            "LED" => "Indicators",
+            "Light" => "Light power-saving mode",
+            "Deep" => "Deep power-saving mode",
             "WiFi" => "Wi-Fi",
-            "WiFi5G" => "Wi-Fi 5 ГГц",
-            _ => bail!("роутер вернул неизвестный профиль расписания"),
+            "WiFi5G" => "Wi-Fi 5 GHz",
+            _ => bail!("router returned an unknown schedule profile"),
         };
         println!(
             "{label}: {}.",
             if scheduled {
-                "расписание включено"
+                "schedule enabled"
             } else {
-                "расписание не включено"
+                "schedule disabled"
             }
         );
     }
@@ -471,15 +461,15 @@ fn show_power_schedules(value: &Value) -> Result<()> {
 fn show_ipv6_pinholes(value: &Value) -> Result<()> {
     let pinholes = value
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат IPv6-правил"))?;
+        .ok_or_else(|| anyhow!("router returned an unexpected IPv6 rules format"))?;
     if pinholes.is_empty() {
-        println!("Правил входящего доступа IPv6 нет.");
+        println!("No incoming IPv6 access rules.");
         return Ok(());
     }
 
     println!(
-        "{:<24} {:<40} {:<8} {:<8} ВКЛЮЧЕНО",
-        "ИМЯ", "АДРЕС", "ПОРТ", "ПРОТОКОЛ"
+        "{:<24} {:<40} {:<8} {:<8} ENABLED",
+        "NAME", "ADDRESS", "PORT", "PROTOCOL"
     );
     println!("{}", "─".repeat(90));
     for pinhole in pinholes {
@@ -492,21 +482,21 @@ fn show_ipv6_pinholes(value: &Value) -> Result<()> {
             yes_no_field(pinhole.get("enable").or_else(|| pinhole.get("Enable")))
         );
     }
-    println!("\nВсего правил: {}", pinholes.len());
+    println!("\nTotal rules: {}", pinholes.len());
     Ok(())
 }
 
 fn yes_no_field(value: Option<&Value>) -> &'static str {
     match value {
-        Some(Value::Bool(true)) => "да",
-        Some(Value::Bool(false)) => "нет",
+        Some(Value::Bool(true)) => "yes",
+        Some(Value::Bool(false)) => "no",
         Some(Value::String(value))
             if matches!(
                 value.to_ascii_lowercase().as_str(),
                 "true" | "1" | "enabled" | "on"
             ) =>
         {
-            "да"
+            "yes"
         }
         Some(Value::String(value))
             if matches!(
@@ -514,7 +504,7 @@ fn yes_no_field(value: Option<&Value>) -> &'static str {
                 "false" | "0" | "disabled" | "off"
             ) =>
         {
-            "нет"
+            "no"
         }
         _ => "—",
     }
@@ -526,19 +516,19 @@ fn show_guest(value: &Value) {
             println!(
                 "{}: {}",
                 if key == "Enable" {
-                    "Гостевая Wi-Fi"
+                    "Guest Wi-Fi"
                 } else {
-                    "Активна"
+                    "Active"
                 },
-                if enabled { "да" } else { "нет" }
+                if enabled { "yes" } else { "no" }
             );
         }
     }
     for (key, label) in [
-        ("ActivationTimeout", "Таймаут активации"),
-        ("ActivationDuration", "Длительность"),
-        ("StartTime", "Время запуска"),
-        ("ValidTime", "Время окончания"),
+        ("ActivationTimeout", "Activation timeout"),
+        ("ActivationDuration", "Duration"),
+        ("StartTime", "Start time"),
+        ("ValidTime", "End time"),
     ] {
         if let Some(value) = value.get(key).filter(|value| !value.is_null()) {
             println!("{label}: {value}");
@@ -550,7 +540,7 @@ fn show_guest_page(router: &Router) -> Result<()> {
     let status = router.guest()?;
     show_guest(&status);
     let details = router.guest_networks()?;
-    println!("\nПараметры гостевой сети (ключи скрыты):");
+    println!("\nGuest network settings (keys redacted):");
     println!("{}", pretty_redacted(&details)?);
     Ok(())
 }
@@ -562,17 +552,17 @@ fn normalize_mac(value: &str) -> Result<String> {
             .iter()
             .any(|octet| octet.len() != 2 || !octet.bytes().all(|byte| byte.is_ascii_hexdigit()))
     {
-        bail!("неверный MAC-адрес; ожидается формат AA:BB:CC:DD:EE:FF");
+        bail!("invalid MAC address; expected format AA:BB:CC:DD:EE:FF");
     }
     let first_octet = u8::from_str_radix(octets[0], 16)?;
     if first_octet & 1 != 0 {
-        bail!("нужен unicast MAC-адрес конкретного устройства");
+        bail!("a unicast MAC address for a specific device is required");
     }
     Ok(value.to_ascii_uppercase())
 }
 
 fn validate_ipv4(value: &str) -> Result<&str> {
-    Ipv4Addr::from_str(value).context("ожидается корректный IPv4-адрес")?;
+    Ipv4Addr::from_str(value).context("expected a valid IPv4 address")?;
     Ok(value)
 }
 
@@ -593,7 +583,7 @@ fn is_sensitive_key(key: &str) -> bool {
 }
 
 fn pretty_redacted(value: &Value) -> Result<String> {
-    serde_json::to_string_pretty(&redact(value)).context("не удалось подготовить JSON для вывода")
+    serde_json::to_string_pretty(&redact(value)).context("failed to prepare JSON for output")
 }
 
 fn redact(value: &Value) -> Value {
@@ -602,7 +592,7 @@ fn redact(value: &Value) -> Value {
             let mut result = serde_json::Map::new();
             for (key, value) in object {
                 if is_sensitive_key(key) {
-                    result.insert(key.clone(), Value::String("[СКРЫТО]".to_owned()));
+                    result.insert(key.clone(), Value::String("[REDACTED]".to_owned()));
                 } else {
                     result.insert(key.clone(), redact(value));
                 }
@@ -639,32 +629,32 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             Router::validate_dynamic_dns_identity(service, hostname, username)?;
             let prompt = format!(
-                "Добавить DynDNS-хост {hostname} через {service}? Провайдерские учётные данные будут сохранены на роутере."
+                "Add DynDNS host {hostname} via {service}? Provider credentials will be saved on the router."
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
-            let password = rpassword::prompt_password("Пароль DynDNS (ввод скрыт): ")
-                .context("не удалось прочитать пароль DynDNS")?;
+            let password = rpassword::prompt_password("DynDNS password (input hidden): ")
+                .context("failed to read DynDNS password")?;
             router.add_dynamic_dns_host(service, hostname, username, &password)?;
             drop(password);
-            println!("DynDNS-хост добавлен.");
+            println!("DynDNS host added.");
         }
         Command::DdnsRemove { hostname } => {
-            let prompt = format!("Удалить DynDNS-хост {hostname}?");
+            let prompt = format!("Remove DynDNS host {hostname}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.remove_dynamic_dns_host(hostname)?;
-            println!("DynDNS-хост удалён.");
+            println!("DynDNS host removed.");
         }
         Command::Wan => {
             let status = router.wan_status()?;
             match status.as_bool() {
-                Some(true) => println!("WAN: доступен"),
-                Some(false) => println!("WAN: недоступен"),
+                Some(true) => println!("WAN: available"),
+                Some(false) => println!("WAN: unavailable"),
                 None => println!("WAN: {}", status),
             }
         }
@@ -676,15 +666,15 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let state = router.internet_dashboard_state()?;
             let available = state.get("available").and_then(Value::as_bool) == Some(true);
             println!(
-                "Интернет-соединение: {}.",
+                "Internet connection: {}.",
                 if available {
-                    "доступно"
+                    "available"
                 } else {
-                    "недоступно"
+                    "unavailable"
                 }
             );
             if let Some(link_mode) = state.get("linkMode").and_then(Value::as_str) {
-                println!("Тип подключения: {link_mode}.");
+                println!("Connection type: {link_mode}.");
             }
         }
         Command::Wifi { action: None } => show_wifi(&router.wifi_status()?),
@@ -693,12 +683,12 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let enabled = matches!(action, WifiAction::On);
             if !cli.yes && !confirm_wifi_change(enabled)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             // The Funbox API requires both fields: Enable and Status.
             router.set_wifi(enabled)?;
-            println!("Команда отправлена.");
+            println!("Command sent.");
             show_wifi(&router.wifi_status()?);
         }
         Command::WifiOpenMode => {
@@ -709,7 +699,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let status = router.wifi_status()?;
             match status.get("WPSEnable") {
                 Some(value) => println!("WPS: {}", yes_no_field(Some(value))),
-                None => println!("Роутер не сообщил состояние WPS."),
+                None => println!("Router did not report WPS status."),
             }
         }
         Command::Wps {
@@ -717,28 +707,28 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let enabled = matches!(action, WifiAction::On);
             let prompt = if enabled {
-                "Включить WPS? Подключение по PIN может ослабить защиту Wi-Fi."
+                "Enable WPS? PIN-based connections may weaken Wi-Fi security."
             } else {
-                "Выключить WPS и запретить подключение через WPS?"
+                "Disable WPS and prevent connections via WPS?"
             };
             if !cli.yes && !confirm_action(prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_wps(enabled)?;
             let status = router.wifi_status()?;
             match status.get("WPSEnable") {
                 Some(value) => println!("WPS: {}", yes_no_field(Some(value))),
-                None => println!("Команда отправлена; роутер не сообщил состояние WPS."),
+                None => println!("Command sent; router did not report WPS status."),
             }
         }
         Command::Devices => {
             let devices = router.devices()?;
-            show_devices(&devices, "Активных DHCP-устройств")?;
+            show_devices(&devices, "Active DHCP devices")?;
         }
         Command::AllDevices => {
             let devices = router.all_devices()?;
-            show_devices(&devices, "Устройств из всех доступных категорий")?;
+            show_devices(&devices, "Devices from all available categories")?;
         }
         Command::Device { mac } => {
             let mac = normalize_mac(mac)?;
@@ -746,7 +736,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         }
         Command::DeviceHistory => {
             let devices = router.device_history()?;
-            show_devices(&devices, "Записей об устройствах")?;
+            show_devices(&devices, "Device records")?;
         }
         Command::Networks => {
             let networks = router.networks()?;
@@ -775,12 +765,8 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::RepeaterSchedule => {
             let enabled = router.repeater_schedule_state()?;
             println!(
-                "Расписание Wi-Fi-репитера: {}.",
-                if enabled {
-                    "включено"
-                } else {
-                    "выключено"
-                }
+                "Wi-Fi repeater schedule: {}.",
+                if enabled { "enabled" } else { "disabled" }
             );
         }
         Command::PowerSchedules => {
@@ -793,24 +779,24 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::BlockDevice { mac } => {
             let mac = normalize_mac(mac)?;
             let prompt = format!(
-                "Запретить устройству {mac} доступ в Интернет? Доступ к другим устройствам локальной сети останется."
+                "Block Internet access for device {mac}? Access to other local network devices will remain."
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.block_device(&mac)?;
-            println!("Для {mac} включено ограничение доступа в Интернет.");
+            println!("Internet access restriction enabled for {mac}.");
         }
         Command::UnblockDevice { mac } => {
             let mac = normalize_mac(mac)?;
-            let prompt = format!("Вернуть устройству {mac} доступ в Интернет?");
+            let prompt = format!("Restore Internet access for device {mac}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.unblock_device(&mac)?;
-            println!("Для {mac} восстановлен доступ в Интернет.");
+            println!("Internet access restored for {mac}.");
         }
         Command::WifiSteering => {
             let steering = router.wifi_steering()?;
@@ -824,11 +810,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let enabled = router.wifi_iot_enabled()?;
             println!(
                 "IoT Wi-Fi: {}.",
-                if enabled {
-                    "включён"
-                } else {
-                    "выключен"
-                }
+                if enabled { "enabled" } else { "disabled" }
             );
         }
         Command::DashboardTiles => {
@@ -837,39 +819,39 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::AdminPasswordState => {
             let state = router.admin_password_state()?;
             match state.get("state").and_then(Value::as_str) {
-                Some("notSet") => println!("Пароль администратора не установлен."),
+                Some("notSet") => println!("Administrator password is not set."),
                 Some("factoryDefault") => {
-                    println!("Используется пароль администратора по умолчанию.")
+                    println!("The default administrator password is in use.")
                 }
-                _ => println!("Роутер сообщил неизвестное состояние пароля администратора."),
+                _ => println!("Router reported an unknown administrator password state."),
             }
         }
         Command::Language => {
             let language = router.interface_language()?;
             let name = match language.as_str() {
-                "en" => "английский",
-                "pl" => "польский",
+                "en" => "English",
+                "pl" => "Polish",
                 _ => unreachable!("language code is validated by Router"),
             };
-            println!("Язык интерфейса роутера: {name} ({language}).");
+            println!("Router interface language: {name} ({language}).");
         }
         Command::DashboardFavorite { tile, action } => {
             Router::validate_dashboard_tile_name(tile)?;
             let favorite = matches!(action, FavoriteAction::On);
             let prompt = if favorite {
-                format!("Добавить плитку {tile} в избранное dashboard?")
+                format!("Add dashboard tile {tile} to favorites?")
             } else {
-                format!("Убрать плитку {tile} из избранного dashboard?")
+                format!("Remove dashboard tile {tile} from dashboard favorites?")
             };
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_dashboard_favorite(tile, favorite)?;
             if favorite {
-                println!("Плитка {tile} добавлена в избранное dashboard.");
+                println!("Dashboard tile {tile} added to favorites.");
             } else {
-                println!("Плитка {tile} убрана из избранного dashboard.");
+                println!("Dashboard tile {tile} removed from favorites.");
             }
         }
         Command::Television => {
@@ -878,14 +860,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         }
         Command::IptvStatus => {
             let enabled = router.television_dashboard_state()?;
-            println!(
-                "IPTV: {}.",
-                if enabled {
-                    "доступно"
-                } else {
-                    "неактивно"
-                }
-            );
+            println!("IPTV: {}.", if enabled { "available" } else { "inactive" });
         }
         Command::Voice => {
             let voice = router.voice()?;
@@ -899,14 +874,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
                 .and_then(Value::as_u64)
                 .unwrap_or(0);
             println!(
-                "Телефонная линия: {}.",
-                if enabled {
-                    "включена"
-                } else {
-                    "выключена"
-                }
+                "Phone line: {}.",
+                if enabled { "enabled" } else { "disabled" }
             );
-            println!("Пропущенных звонков: {missed_calls}.");
+            println!("Missed calls: {missed_calls}.");
         }
         Command::Lan => {
             let lan = router.lan()?;
@@ -922,20 +893,16 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             Router::validate_lan_settings(*address, *netmask, *dhcp_min, *dhcp_max)?;
             let dhcp_enabled = matches!(dhcp, DhcpAction::On);
             let prompt = format!(
-                "Установить LAN {address}/{netmask}, DHCP {} ({dhcp_min}–{dhcp_max})? При смене адреса соединение с роутером может оборваться.",
-                if dhcp_enabled {
-                    "включён"
-                } else {
-                    "выключен"
-                }
+                "Set LAN {address}/{netmask}, DHCP {} ({dhcp_min}–{dhcp_max})? Changing the address may disconnect you from the router.",
+                if dhcp_enabled { "enabled" } else { "disabled" }
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_lan(*address, *netmask, dhcp_enabled, *dhcp_min, *dhcp_max)?;
             println!(
-                "Настройки отправлены. Если LAN-адрес изменён, подключайся к роутеру по адресу http://{address}."
+                "Settings sent. If the LAN address changed, reconnect to the router at http://{address}."
             );
         }
         Command::NetworkDetails => {
@@ -961,45 +928,42 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::DhcpLeaseTime { seconds } => {
             Router::validate_dhcp_lease_time(*seconds)?;
             let prompt =
-                format!("Установить срок DHCP-аренды {seconds} секунд (от 60 секунд до 365 дней)?");
+                format!("Set DHCP lease time to {seconds} seconds (from 60 seconds to 365 days)?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_dhcp_lease_time(*seconds)?;
-            println!("Срок DHCP-аренды обновлён.");
+            println!("DHCP lease time updated.");
         }
         Command::Firewall { level: None } => {
             let level = router.firewall_level()?;
-            println!("Уровень firewall: {level}");
+            println!("Firewall level: {level}");
         }
         Command::Firewall { level: Some(level) } => {
             let level = level.as_api_value();
-            let prompt = format!("Установить уровень firewall {level}?");
+            let prompt = format!("Set firewall level to {level}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_firewall_level(level)?;
             let current = router.firewall_level()?;
-            println!("Текущий уровень firewall: {current}");
+            println!("Current firewall level: {current}");
         }
         Command::FirewallIpv6 { level: None } => {
             let level = router.firewall_ipv6_level()?;
-            println!("Уровень firewall для IPv6: {level}");
+            println!("IPv6 firewall level: {level}");
         }
         Command::FirewallIpv6 { level: Some(level) } => {
             let level = level.as_api_value();
-            let prompt = format!("Установить уровень firewall для IPv6: {level}?");
+            let prompt = format!("Set IPv6 firewall level to {level}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_firewall_ipv6_level(level)?;
-            println!(
-                "Уровень firewall для IPv6: {}",
-                router.firewall_ipv6_level()?
-            );
+            println!("IPv6 firewall level: {}", router.firewall_ipv6_level()?);
         }
         Command::RemoteAccess => {
             let status = router.remote_access_status()?;
@@ -1008,10 +972,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::RemoteAccessDisable => {
             if !cli.yes
                 && !confirm_action(
-                    "Отключить удалённое управление роутером из Интернета? Локальный доступ сохранится.",
+                    "Disable remote router management from the Internet? Local access will remain available.",
                 )?
             {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.disable_remote_access()?;
@@ -1023,16 +987,16 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let enabled = matches!(action, GuestAction::On);
             let prompt = if enabled {
-                "Включить гостевую Wi-Fi без таймера отключения?"
+                "Enable guest Wi-Fi without an auto-disable timer?"
             } else {
-                "Выключить гостевую Wi-Fi сеть? Подключённые к ней устройства потеряют связь."
+                "Disable guest Wi-Fi? Connected devices will lose connectivity."
             };
             if !cli.yes && !confirm_action(prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_guest(enabled)?;
-            println!("Команда отправлена.");
+            println!("Command sent.");
             show_guest_page(router)?;
         }
         Command::Energy => {
@@ -1056,16 +1020,16 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let destination_ip = Ipv4Addr::from_str(validate_ipv4(ip)?)?;
             if *external_port == 0 || *internal_port == 0 {
-                bail!("номер порта должен быть в диапазоне 1–65535");
+                bail!("port number must be in the range 1–65535");
             }
             router.validate_lan_destination(destination_ip)?;
             let protocol_value = protocol.as_api_value();
             let prompt = format!(
-                "Открыть порт {external_port}/{} на {destination_ip}:{internal_port} с доступом из Интернета?",
+                "Open port {external_port}/{} on {destination_ip}:{internal_port} for Internet access?",
                 protocol.label()
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.add_forward(
@@ -1075,17 +1039,18 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
                 *internal_port,
                 protocol_value,
             )?;
-            println!("Проброс порта создан и сохранён.");
+            println!("Port forwarding rule created and saved.");
         }
         Command::ForwardRemove { name } => {
-            let prompt =
-                format!("Удалить проброс «{name}»? Входящий доступ через это правило прекратится.");
+            let prompt = format!(
+                "Remove port forwarding rule “{name}”? Incoming access through this rule will stop."
+            );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.remove_forward(name)?;
-            println!("Правило проброса удалено.");
+            println!("Port forwarding rule removed.");
         }
         Command::UpnpForwards => {
             let forwards = router.upnp_forwards()?;
@@ -1100,12 +1065,12 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let enabled = matches!(action, WifiAction::On);
             let prompt = if enabled {
-                "Разрешить устройствам автоматически открывать входящие порты через UPnP? Это может повысить риск доступа из Интернета."
+                "Allow devices to automatically open incoming ports via UPnP? This may increase the risk of Internet access."
             } else {
-                "Запретить устройствам автоматически открывать порты? Некоторые приложения могут потерять входящие соединения."
+                "Prevent devices from automatically opening ports? Some applications may lose incoming connections."
             };
             if !cli.yes && !confirm_action(prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_upnp_enabled(enabled)?;
@@ -1125,12 +1090,12 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             let enabled = matches!(action, WifiAction::On);
             let prompt = if enabled {
-                "Разрешить ответы firewall на ping из Интернета (IPv4 и IPv6)?"
+                "Allow firewall ping responses from the Internet (IPv4 and IPv6)?"
             } else {
-                "Запретить ответы firewall на ping из Интернета (IPv4 и IPv6)?"
+                "Block firewall ping responses from the Internet (IPv4 and IPv6)?"
             };
             if !cli.yes && !confirm_action(prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             let result = router.set_firewall_ping_response(enabled)?;
@@ -1143,10 +1108,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::DmzSet { destination } => {
             router.validate_lan_destination(*destination)?;
             let prompt = format!(
-                "ВНИМАНИЕ: направить весь входящий интернет-трафик на {destination}? Это уменьшит защиту этого устройства."
+                "WARNING: route all incoming Internet traffic to {destination}? This will reduce this device’s security."
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             let result = router.set_dmz(*destination)?;
@@ -1154,11 +1119,9 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         }
         Command::DmzClear => {
             if !cli.yes
-                && !confirm_action(
-                    "Удалить правило DMZ и прекратить перенаправление всего входящего трафика?",
-                )?
+                && !confirm_action("Remove the DMZ rule and stop forwarding all incoming traffic?")?
             {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             let result = router.clear_dmz()?;
@@ -1178,27 +1141,26 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let protocol_value = protocol.as_api_value();
             Router::validate_ipv6_pinhole(name, *destination, &mac, *port, protocol_value)?;
             let prompt = format!(
-                "Открыть входящий IPv6-порт {port}/{} для {destination} (MAC {mac}) из Интернета?",
+                "Open incoming IPv6 port {port}/{} for {destination} (MAC {mac}) to the Internet?",
                 protocol.label()
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.add_ipv6_pinhole(name, *destination, &mac, *port, protocol_value)?;
-            println!("IPv6-правило создано и сохранено.");
+            println!("IPv6 rule created and saved.");
         }
         Command::Ipv6PinholeRemove { name } => {
             Router::validate_ipv6_pinhole_identifier(name)?;
-            let prompt = format!(
-                "Удалить IPv6-правило «{name}»? Входящие соединения через него прекратятся."
-            );
+            let prompt =
+                format!("Remove IPv6 rule “{name}”? Incoming connections through it will stop.");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.remove_ipv6_pinhole(name)?;
-            println!("IPv6-правило удалено.");
+            println!("IPv6 rule removed.");
         }
         Command::Ipv6 => {
             let settings = router.ipv6()?;
@@ -1211,7 +1173,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::TimeZone { timezone: None } => {
             let time = router.time()?;
             println!(
-                "Часовой пояс: {}",
+                "Time zone: {}",
                 time.get("timezone").unwrap_or(&Value::Null)
             );
         }
@@ -1220,16 +1182,16 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         } => {
             Router::validate_timezone(timezone)?;
             let prompt = format!(
-                "Установить часовой пояс {timezone}? Это изменит отображение времени и может повлиять на расписания."
+                "Set time zone to {timezone}? This will change displayed times and may affect schedules."
             );
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.set_timezone(timezone)?;
             let time = router.time()?;
             println!(
-                "Часовой пояс: {}",
+                "Time zone: {}",
                 time.get("timezone").unwrap_or(&Value::Null)
             );
         }
@@ -1244,40 +1206,42 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::Reserve { mac, ip } => {
             let mac = normalize_mac(mac)?;
             let ip = validate_ipv4(ip)?;
-            let prompt = format!("Закрепить адрес {ip} за устройством {mac}?");
+            let prompt = format!("Reserve address {ip} for device {mac}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.add_lease(&mac, ip)?;
-            println!("DHCP-резервация добавлена.");
+            println!("DHCP reservation added.");
         }
         Command::Unreserve { mac } => {
             let mac = normalize_mac(mac)?;
-            let prompt = format!("Удалить DHCP-резервацию для {mac}?");
+            let prompt = format!("Remove DHCP reservation for {mac}?");
             if !cli.yes && !confirm_action(&prompt)? {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.remove_lease(&mac.to_ascii_lowercase())?;
-            println!("DHCP-резервация удалена.");
+            println!("DHCP reservation removed.");
         }
         Command::Reboot => {
             if !cli.yes
-                && !confirm_action("Перезагрузить роутер? Связь прервётся на несколько минут.")?
+                && !confirm_action(
+                    "Reboot the router? Connectivity will be interrupted for several minutes.",
+                )?
             {
-                println!("Отменено.");
+                println!("Cancelled.");
                 return Ok(());
             }
             router.reboot()?;
-            println!("Команда перезагрузки отправлена.");
+            println!("Reboot command sent.");
         }
         Command::Status => {
             show_info(&router.info()?);
             let wan = router.wan_status()?;
             match wan.as_bool() {
-                Some(true) => println!("WAN: доступен"),
-                Some(false) => println!("WAN: недоступен"),
+                Some(true) => println!("WAN: available"),
+                Some(false) => println!("WAN: unavailable"),
                 None => println!("WAN: {}", wan),
             }
             show_wifi(&router.wifi_status()?);
@@ -1327,7 +1291,7 @@ mod tests {
         assert!(!output.contains("do-not-print"));
         assert!(!output.contains("also-secret"));
         assert!(!output.contains("\"secret\""));
-        assert_eq!(output.matches("[СКРЫТО]").count(), 3);
+        assert_eq!(output.matches("[REDACTED]").count(), 3);
     }
 
     #[test]
@@ -1359,8 +1323,8 @@ mod tests {
 
     #[test]
     fn formats_uptime_and_reads_numeric_strings() {
-        assert_eq!(format_uptime(90_061), "1 дн. 1 ч. 1 мин.");
-        assert_eq!(format_uptime(3_599), "0 ч. 59 мин.");
+        assert_eq!(format_uptime(90_061), "1d 1h 1m");
+        assert_eq!(format_uptime(3_599), "0h 59m");
         let info = serde_json::json!({ "UpTime": "7200" });
         assert_eq!(unsigned_field(&info, &["UpTime", "Uptime"]), Some(7_200));
     }

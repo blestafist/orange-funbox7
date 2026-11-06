@@ -23,7 +23,9 @@ impl RouterClient {
             || host.contains('#')
             || host.contains('?')
         {
-            bail!("Некорректный адрес роутера: укажи только имя хоста или IP, без URL и пути");
+            bail!(
+                "Invalid router address: provide only a hostname or IP, without a URL scheme or path"
+            );
         }
 
         let base = format!("http://{host}");
@@ -34,7 +36,7 @@ impl RouterClient {
             .user_agent("funbox7-cli/0.1")
             .timeout(Duration::from_secs(12))
             .build()
-            .context("не удалось создать HTTP-клиент")?;
+            .context("failed to create HTTP client")?;
 
         Ok(Self {
             http,
@@ -67,27 +69,25 @@ impl RouterClient {
             .header(reqwest::header::AUTHORIZATION, authorization)
             .body(body.to_string())
             .send()
-            .with_context(|| format!("не удалось подключиться к {}", self.endpoint))?;
+            .with_context(|| format!("failed to connect to {}", self.endpoint))?;
 
         let status = response.status();
-        let text = response
-            .text()
-            .context("не удалось прочитать ответ роутера")?;
+        let text = response.text().context("failed to read router response")?;
         if !status.is_success() {
             if sensitive {
                 bail!(
-                    "роутер вернул HTTP {status}; тело ответа скрыто, запрос содержит учётные данные"
+                    "router returned HTTP {status}; response body is hidden because the request contains credentials"
                 );
             }
-            bail!("роутер вернул HTTP {status}: {}", short_body(&text));
+            bail!("router returned HTTP {status}: {}", short_body(&text));
         }
 
         serde_json::from_str(&text).with_context(|| {
             if sensitive {
-                "роутер вернул не-JSON ответ; содержимое скрыто, запрос содержит учётные данные"
+                "router returned a non-JSON response; content is hidden because the request contains credentials"
                     .to_owned()
             } else {
-                format!("роутер вернул не-JSON ответ: {}", short_body(&text))
+                format!("router returned a non-JSON response: {}", short_body(&text))
             }
         })
     }
@@ -104,14 +104,16 @@ impl RouterClient {
             }
         });
         let response = client.request_sensitive(&body, "X-Sah-Login")?;
-        check_api_errors_with_privacy(&response, "вход", true)?;
+        check_api_errors_with_privacy(&response, "login", true)?;
 
         let context_id = response
             .get("data")
             .and_then(|data| data.get("contextID"))
             .and_then(Value::as_str)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow!("роутер не выдал сессию; проверь логин и пароль"))?;
+            .ok_or_else(|| {
+                anyhow!("router did not provide a session; check the username and password")
+            })?;
         client.context_id = Some(context_id.to_owned());
         Ok(client)
     }
@@ -147,7 +149,7 @@ impl RouterClient {
         let context_id = self
             .context_id
             .as_deref()
-            .ok_or_else(|| anyhow!("нет активной сессии"))?;
+            .ok_or_else(|| anyhow!("no active session"))?;
         let body = json!({
             "service": service,
             "method": method,
@@ -174,7 +176,7 @@ impl RouterClient {
         let context_id = self
             .context_id
             .as_deref()
-            .ok_or_else(|| anyhow!("нет активной сессии"))?;
+            .ok_or_else(|| anyhow!("no active session"))?;
         let body = json!({
             "service": service,
             "method": method,
@@ -193,10 +195,9 @@ impl RouterClient {
         if let Some(data) = response.get("data") {
             return Ok(data.clone());
         }
-        response
-            .get("status")
-            .cloned()
-            .ok_or_else(|| anyhow!("в ответе {service}.{method} нет поля status/data"))
+        response.get("status").cloned().ok_or_else(|| {
+            anyhow!("response from {service}.{method} is missing the status/data field")
+        })
     }
 
     pub fn logout(&mut self) {
@@ -223,7 +224,9 @@ fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: b
     }
 
     if sensitive {
-        bail!("ошибка роутера при {operation}; подробности скрыты, запрос содержит учётные данные");
+        bail!(
+            "router error during {operation}; details are hidden because the request contains credentials"
+        );
     }
 
     let details = errors
@@ -232,7 +235,7 @@ fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: b
             let description = error
                 .get("description")
                 .and_then(Value::as_str)
-                .unwrap_or("ошибка API");
+                .unwrap_or("API error");
             let info = error
                 .get("info")
                 .and_then(Value::as_str)
@@ -245,25 +248,25 @@ fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: b
         })
         .collect::<Vec<_>>()
         .join("; ");
-    bail!("ошибка роутера при {operation}: {details}");
+    bail!("router error during {operation}: {details}");
 }
 
 fn response_data_with_privacy(response: &Value, operation: &str, sensitive: bool) -> Result<Value> {
     let status = response
         .get("status")
-        .ok_or_else(|| anyhow!("в ответе {operation} нет поля status"))?;
+        .ok_or_else(|| anyhow!("response from {operation} is missing the status field"))?;
     if status != 0 {
         if sensitive {
             bail!(
-                "ошибка роутера при {operation}; подробности скрыты, ответ содержит личные данные"
+                "router error during {operation}; details are hidden because the response contains personal data"
             );
         }
-        bail!("ошибка роутера при {operation}: статус {status}");
+        bail!("router error during {operation}: status {status}");
     }
     response
         .get("data")
         .cloned()
-        .ok_or_else(|| anyhow!("в ответе {operation} нет поля data"))
+        .ok_or_else(|| anyhow!("response from {operation} is missing the data field"))
 }
 
 fn short_body(body: &str) -> String {
@@ -313,7 +316,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(!error.contains("phone-number-is-private"));
-        assert!(error.contains("подробности скрыты"));
+        assert!(error.contains("details are hidden"));
     }
 
     #[test]
@@ -329,7 +332,7 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(!error.contains("provider-secret"));
-        assert!(error.contains("подробности скрыты"));
+        assert!(error.contains("details are hidden"));
     }
 
     #[test]

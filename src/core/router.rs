@@ -97,7 +97,7 @@ impl Router {
     ) -> Result<()> {
         Self::validate_dynamic_dns_config(service, hostname, username, password)?;
         if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_some() {
-            bail!("DynDNS-хост {hostname:?} уже настроен");
+            bail!("DynDNS host {hostname:?} is already configured");
         }
         let response = self.client.call_sensitive(
             "DynDNS",
@@ -115,7 +115,7 @@ impl Router {
     pub fn remove_dynamic_dns_host(&self, hostname: &str) -> Result<()> {
         validate_dynamic_dns_hostname(hostname)?;
         if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_none() {
-            bail!("DynDNS-хост {hostname:?} не найден");
+            bail!("DynDNS host {hostname:?} was not found");
         }
         let response = self
             .client
@@ -131,7 +131,7 @@ impl Router {
     ) -> Result<()> {
         Self::validate_dynamic_dns_identity(service, hostname, username)?;
         if password.is_empty() || password.len() > 1024 {
-            bail!("пароль DynDNS не должен быть пустым или длиннее 1024 байт");
+            bail!("DynDNS password must not be empty or exceed 1024 bytes");
         }
         Ok(())
     }
@@ -147,14 +147,14 @@ impl Router {
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
         {
-            bail!("укажи корректный идентификатор DynDNS-провайдера");
+            bail!("Enter a valid DynDNS provider identifier");
         }
         validate_dynamic_dns_hostname(hostname)?;
         if username.trim().is_empty() || username.len() > 256 {
-            bail!("имя пользователя DynDNS не должно быть пустым или длиннее 256 байт");
+            bail!("DynDNS username must not be empty or exceed 256 bytes");
         }
         if username.chars().any(char::is_control) {
-            bail!("имя пользователя DynDNS не должно содержать управляющие символы");
+            bail!("DynDNS username must not contain control characters");
         }
         Ok(())
     }
@@ -231,7 +231,7 @@ impl Router {
         let devices = sanitize_device_summaries(&self.all_devices()?);
         find_device_by_mac(&devices, &mac)
             .cloned()
-            .ok_or_else(|| anyhow!("активное устройство с MAC-адресом {mac} не найдено"))
+            .ok_or_else(|| anyhow!("Active device with MAC address {mac} was not found"))
     }
 
     pub fn device_history(&self) -> Result<Value> {
@@ -342,7 +342,7 @@ impl Router {
         let mac = normalize_mac_address(mac)?;
         let schedules = self.device_schedules()?;
         if find_device_schedule(&schedules, &mac).is_none() {
-            bail!("для устройства {mac} нет расписания ограничения доступа");
+            bail!("No access restriction schedule exists for device {mac}");
         }
         self.client.call(
             "Scheduler",
@@ -667,13 +667,13 @@ impl Router {
         validate_forward_name(name)?;
         validate_forward_protocol(protocol)?;
         if external_port == 0 || internal_port == 0 {
-            bail!("номер порта должен быть в диапазоне 1–65535");
+            bail!("Port number must be between 1 and 65535");
         }
         self.validate_lan_destination(destination_ip)?;
 
         let current = self.forwards()?;
         if find_forward(&current, name).is_some() {
-            bail!("проброс с именем {name:?} уже существует");
+            bail!("A port forward named {name:?} already exists");
         }
 
         self.client.call(
@@ -701,13 +701,13 @@ impl Router {
         validate_forward_name(name)?;
         let current = self.forwards()?;
         let entry = find_forward(&current, name)
-            .ok_or_else(|| anyhow!("не найден проброс портов с именем {name:?}"))?;
+            .ok_or_else(|| anyhow!("Port forward named {name:?} was not found"))?;
         let protocol = field_string(entry, &["Protocol", "protocol"])
-            .ok_or_else(|| anyhow!("в записи проброса нет протокола"))?;
+            .ok_or_else(|| anyhow!("Port forward entry has no protocol"))?;
         let internal_port = field_string(entry, &["InternalPort", "internalPort"])
-            .ok_or_else(|| anyhow!("в записи проброса нет внутреннего порта"))?;
+            .ok_or_else(|| anyhow!("Port forward entry has no internal port"))?;
         let external_port = field_string(entry, &["ExternalPort", "externalPort"])
-            .ok_or_else(|| anyhow!("в записи проброса нет внешнего порта"))?;
+            .ok_or_else(|| anyhow!("Port forward entry has no external port"))?;
 
         self.client.call(
             "Firewall",
@@ -753,7 +753,7 @@ impl Router {
 
         let existing = self.ipv6_pinholes()?;
         if find_pinhole(&existing, name)?.is_some() {
-            bail!("IPv6-правило с именем {name:?} уже существует");
+            bail!("IPv6 rule named {name:?} already exists");
         }
 
         let response = self.client.call(
@@ -792,7 +792,7 @@ impl Router {
         normalize_mac_address(mac)?;
         validate_pinhole_protocol(protocol)?;
         if port == 0 {
-            bail!("порт должен быть в диапазоне 1–65535");
+            bail!("Port must be between 1 and 65535");
         }
         Ok(())
     }
@@ -801,9 +801,9 @@ impl Router {
         Self::validate_ipv6_pinhole_identifier(name)?;
         let pinholes = self.ipv6_pinholes()?;
         let entry = find_pinhole(&pinholes, name)?
-            .ok_or_else(|| anyhow!("не найдено IPv6-правило с именем {name:?}"))?;
+            .ok_or_else(|| anyhow!("IPv6 rule named {name:?} was not found"))?;
         let id = field_string(entry, &["id", "Id", "ID"])
-            .ok_or_else(|| anyhow!("у IPv6-правила нет идентификатора"))?;
+            .ok_or_else(|| anyhow!("IPv6 rule has no identifier"))?;
         let response = self
             .client
             .call("Firewall", "deletePinhole", json!({ "id": id }))?;
@@ -820,7 +820,7 @@ impl Router {
             || name.chars().any(char::is_control)
         {
             bail!(
-                "имя или ID IPv6-правила должно быть длиной 1–256 символов без управляющих символов"
+                "IPv6 rule name or ID must be 1–256 characters and contain no control characters"
             );
         }
         Ok(())
@@ -852,7 +852,7 @@ impl Router {
         let no_existing_dmz =
             current.is_null() || current.as_object().is_some_and(serde_json::Map::is_empty);
         if !no_existing_dmz {
-            bail!("DMZ уже настроена; сначала очисти существующее правило");
+            bail!("DMZ is already configured; clear the existing rule first");
         }
         self.client.call(
             "Firewall",
@@ -918,21 +918,23 @@ fn validate_forward_name(name: &str) -> Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
     {
-        bail!("имя правила: 1–32 символа, только латиница, цифры, дефис и подчёркивание");
+        bail!(
+            "Rule name must be 1–32 characters and contain only ASCII letters, digits, hyphens, and underscores"
+        );
     }
     Ok(())
 }
 
 fn validate_forward_protocol(protocol: &str) -> Result<()> {
     if !matches!(protocol, "6" | "17" | "6,17") {
-        bail!("протокол должен быть TCP, UDP или both");
+        bail!("Protocol must be TCP, UDP, or both");
     }
     Ok(())
 }
 
 fn validate_dhcp_lease_time(seconds: u32) -> Result<()> {
     if !(60..=31_536_000).contains(&seconds) {
-        bail!("срок DHCP-аренды должен быть от 60 секунд до 365 дней");
+        bail!("DHCP lease time must be between 60 seconds and 365 days");
     }
     Ok(())
 }
@@ -944,14 +946,14 @@ fn validate_pinhole_destination(destination: Ipv6Addr) -> Result<()> {
         || destination.is_unicast_link_local()
         || destination.to_ipv4_mapped().is_some()
     {
-        bail!("для IPv6 pinhole нужен назначаемый unicast IPv6-адрес LAN-устройства");
+        bail!("IPv6 pinhole requires an assignable unicast IPv6 address of a LAN device");
     }
     Ok(())
 }
 
 fn validate_pinhole_protocol(protocol: &str) -> Result<()> {
     if !matches!(protocol, "6" | "17") {
-        bail!("IPv6 pinhole поддерживает только TCP или UDP");
+        bail!("IPv6 pinhole supports only TCP or UDP");
     }
     Ok(())
 }
@@ -973,7 +975,7 @@ fn ensure_mutation_succeeded(value: &Value, operation: &str) -> Result<()> {
             })
         });
     if rejected {
-        bail!("роутер не подтвердил операцию {operation}");
+        bail!("Router did not confirm operation {operation}");
     }
     Ok(())
 }
@@ -999,7 +1001,7 @@ fn validate_dynamic_dns_hostname(hostname: &str) -> Result<()> {
                     .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
         });
     if !valid {
-        bail!("укажи корректное DNS-имя DynDNS без пробелов и завершающей точки");
+        bail!("Enter a valid DynDNS hostname with no spaces or trailing dot");
     }
     Ok(())
 }
@@ -1016,7 +1018,7 @@ fn validate_timezone(timezone: &str) -> Result<()> {
             .split('/')
             .all(|part| !part.is_empty() && part != "." && part != "..");
     if !valid {
-        bail!("укажи часовой пояс без пробелов и управляющих символов, например Europe/Paris");
+        bail!("Enter a timezone with no spaces or control characters, such as Europe/Paris");
     }
     Ok(())
 }
@@ -1061,72 +1063,72 @@ fn validate_lan_config(
     dhcp_max: Ipv4Addr,
 ) -> Result<()> {
     if !address.is_private() || !dhcp_min.is_private() || !dhcp_max.is_private() {
-        bail!("LAN-адрес и DHCP-диапазон должны быть частными IPv4-адресами RFC 1918");
+        bail!("LAN address and DHCP range must use private RFC 1918 IPv4 addresses");
     }
 
     let address = u32::from(address);
     let mask = u32::from(netmask);
     let prefix = mask.leading_ones();
     if !(1..=30).contains(&prefix) || mask != (u32::MAX << (32 - prefix)) {
-        bail!("маска должна быть непрерывной IPv4-маской от /1 до /30");
+        bail!("Mask must be a contiguous IPv4 mask from /1 to /30");
     }
 
     let network = address & mask;
     let broadcast = network | !mask;
     if !is_private_network(network, broadcast) {
-        bail!("LAN-подсеть должна целиком находиться в частном диапазоне RFC 1918");
+        bail!("LAN subnet must be entirely within a private RFC 1918 range");
     }
     if address == network || address == broadcast {
-        bail!("LAN-адрес роутера не может быть адресом сети или broadcast");
+        bail!("Router LAN address cannot be the network or broadcast address");
     }
     let min = u32::from(dhcp_min);
     let max = u32::from(dhcp_max);
     if min > max {
-        bail!("начало DHCP-диапазона не может быть больше его конца");
+        bail!("DHCP range start cannot be greater than its end");
     }
     if (min & mask) != network || (max & mask) != network {
-        bail!("DHCP-диапазон должен находиться в подсети LAN-адреса");
+        bail!("DHCP range must be within the LAN address subnet");
     }
     if min == network || max == broadcast {
-        bail!("DHCP-диапазон не должен включать адрес сети или broadcast");
+        bail!("DHCP range must not include the network or broadcast address");
     }
     if (min..=max).contains(&address) {
-        bail!("DHCP-диапазон не должен включать LAN-адрес самого роутера");
+        bail!("DHCP range must not include the router's LAN address");
     }
     Ok(())
 }
 
 fn validate_lan_destination(lan: &Value, destination: Ipv4Addr) -> Result<()> {
     if !destination.is_private() {
-        bail!("адрес назначения должен находиться в частном IPv4-диапазоне RFC 1918");
+        bail!("Destination address must be within a private RFC 1918 IPv4 range");
     }
 
     let address = ipv4_field(lan, &["Address", "IPAddress", "LANIPAddress", "IP"])
-        .ok_or_else(|| anyhow!("в ответе LAN API не найден IPv4-адрес роутера"))?;
+        .ok_or_else(|| anyhow!("Router IPv4 address not found in LAN API response"))?;
     let netmask = ipv4_field(lan, &["Netmask", "SubnetMask", "LANSubnetMask", "Mask"])
-        .ok_or_else(|| anyhow!("в ответе LAN API не найдена IPv4-маска"))?;
+        .ok_or_else(|| anyhow!("IPv4 mask not found in LAN API response"))?;
     let mask = u32::from(netmask);
     let prefix = mask.leading_ones();
     if !(1..=30).contains(&prefix) || mask != (u32::MAX << (32 - prefix)) {
-        bail!("роутер вернул некорректную маску LAN");
+        bail!("Router returned an invalid LAN mask");
     }
 
     let address = u32::from(address);
     let network = address & mask;
     let broadcast = network | !mask;
     if !is_private_network(network, broadcast) {
-        bail!("текущая LAN-подсеть не является частной IPv4-подсетью RFC 1918");
+        bail!("Current LAN subnet is not a private RFC 1918 IPv4 subnet");
     }
     if address == network || address == broadcast {
-        bail!("роутер вернул некорректный LAN-адрес");
+        bail!("Router returned an invalid LAN address");
     }
 
     let destination = u32::from(destination);
     if destination & mask != network {
-        bail!("адрес назначения должен находиться в текущей LAN-подсети");
+        bail!("Destination address must be within the current LAN subnet");
     }
     if destination == network || destination == broadcast || destination == address {
-        bail!("адрес назначения должен быть другим LAN-адресом хоста");
+        bail!("Destination address must be another LAN host address");
     }
 
     Ok(())
@@ -1207,36 +1209,36 @@ fn sanitize_device_summaries(value: &Value) -> Value {
 fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
     let fields = value
         .as_object()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат настроек dashboard"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected dashboard settings format"))?;
     let version = fields
         .get("version")
         .and_then(Value::as_str)
         .unwrap_or("V2");
     if !matches!(version, "V1" | "V2") {
-        bail!("неподдерживаемая версия настроек dashboard: {version}");
+        bail!("Unsupported dashboard settings version: {version}");
     }
     let categories = fields
         .get("categories")
         .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("в настройках dashboard нет списка категорий"))?;
+        .ok_or_else(|| anyhow!("Dashboard settings contain no category list"))?;
 
     let mut clean_categories = serde_json::Map::new();
     for (category, entries) in categories {
         validate_dashboard_category_name(category)?;
         let entries = entries
             .as_array()
-            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+            .ok_or_else(|| anyhow!("Dashboard category {category:?} has an invalid format"))?;
         let mut clean_entries = Vec::with_capacity(entries.len());
         for (position, entry) in entries.iter().enumerate() {
             let entry = entry.as_object().ok_or_else(|| {
-                anyhow!("в категории dashboard {category:?} есть запись неверного формата")
+                anyhow!("Dashboard category {category:?} contains an invalid entry")
             })?;
             let raw_name = entry
                 .get("name")
                 .or_else(|| entry.get("manifest"))
                 .and_then(Value::as_str)
                 .ok_or_else(|| {
-                    anyhow!("в категории dashboard {category:?} есть плитка без имени")
+                    anyhow!("Dashboard category {category:?} contains a tile without a name")
                 })?;
             let name = raw_name.strip_prefix("internal_").unwrap_or(raw_name);
             validate_dashboard_tile_name(name)?;
@@ -1244,11 +1246,11 @@ fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
                 None => position as u64,
                 Some(Value::Number(index)) => index
                     .as_u64()
-                    .ok_or_else(|| anyhow!("неверный индекс плитки dashboard {name:?}"))?,
+                    .ok_or_else(|| anyhow!("Invalid index for dashboard tile {name:?}"))?,
                 Some(Value::String(index)) => index
                     .parse::<u64>()
-                    .with_context(|| format!("неверный индекс плитки dashboard {name:?}"))?,
-                Some(_) => bail!("неверный индекс плитки dashboard {name:?}"),
+                    .with_context(|| format!("Invalid index for dashboard tile {name:?}"))?,
+                Some(_) => bail!("Invalid index for dashboard tile {name:?}"),
             };
             let mut clean_entry = json!({
                 "name": name,
@@ -1257,7 +1259,7 @@ fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
             if let Some(is_favorite) = entry.get("isFavorite") {
                 let is_favorite = is_favorite
                     .as_bool()
-                    .ok_or_else(|| anyhow!("неверный статус избранного у плитки {name:?}"))?;
+                    .ok_or_else(|| anyhow!("Invalid favorite status for tile {name:?}"))?;
                 clean_entry["isFavorite"] = Value::Bool(is_favorite);
             }
             clean_entries.push(clean_entry);
@@ -1283,7 +1285,7 @@ fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
     let state = value
         .get("state")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный статус пароля администратора"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected administrator password status"))?;
     let state = match state {
         "notSet" | "factoryDefault" => state,
         _ => "unknown",
@@ -1295,9 +1297,9 @@ fn sanitize_interface_language(value: &Value) -> Result<String> {
     let language = value
         .get("languageId")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный язык интерфейса"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected interface language"))?;
     if !matches!(language, "en" | "pl") {
-        bail!("роутер сообщил неподдерживаемый код языка интерфейса");
+        bail!("Router reported an unsupported interface language code");
     }
     Ok(language.to_owned())
 }
@@ -1307,20 +1309,20 @@ fn sanitize_internet_dashboard_state(value: &Value) -> Result<Value> {
         .get("linkModeList")
         .and_then(Value::as_array)
         .and_then(|links| links.first())
-        .ok_or_else(|| anyhow!("роутер не вернул состояние интернет-соединения"))?;
+        .ok_or_else(|| anyhow!("Router did not return the internet connection state"))?;
     let state = link
         .get("state")
         .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("в ответе нет состояния интернет-соединения"))?;
+        .ok_or_else(|| anyhow!("Response contains no internet connection state"))?;
     let available = state == "OK";
     let mut clean = json!({ "available": available });
     if available {
         let link_mode = link
             .get("linkMode")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("в ответе нет типа интернет-соединения"))?;
+            .ok_or_else(|| anyhow!("Response contains no internet connection type"))?;
         if link_mode.is_empty() || link_mode.len() > 64 || link_mode.chars().any(char::is_control) {
-            bail!("роутер вернул некорректный тип интернет-соединения");
+            bail!("Router returned an invalid internet connection type");
         }
         clean["linkMode"] = Value::String(link_mode.to_owned());
     }
@@ -1331,27 +1333,27 @@ fn sanitize_repeater_schedule_state(value: &Value) -> Result<bool> {
     let schedules = value
         .get("fullScheduleList")
         .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат расписания репитера"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected repeater schedule format"))?;
     let Some(first) = schedules.first() else {
         return Ok(false);
     };
     first
         .get("enable")
         .and_then(Value::as_bool)
-        .ok_or_else(|| anyhow!("в расписании репитера нет корректного статуса enable"))
+        .ok_or_else(|| anyhow!("Repeater schedule has no valid enable status"))
 }
 
 fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
     let status = value
         .get("status")
-        .ok_or_else(|| anyhow!("роутер не сообщил статус профилей энергосбережения"))?;
+        .ok_or_else(|| anyhow!("Router did not report the power-saving profile status"))?;
     if status != 0 && status != true {
-        bail!("роутер вернул ошибочный статус профилей энергосбережения");
+        bail!("Router returned an error status for power-saving profiles");
     }
     let profiles = value
         .get("profiles")
         .and_then(Value::as_object)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный список профилей энергосбережения"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of power-saving profiles"))?;
     let mut result = serde_json::Map::new();
     for name in ["LED", "Light", "Deep", "WiFi", "WiFi5G"] {
         let Some(profile) = profiles.get(name) else {
@@ -1359,11 +1361,11 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
         };
         let profile = profile
             .as_object()
-            .ok_or_else(|| anyhow!("профиль энергосбережения {name} имеет неверный формат"))?;
+            .ok_or_else(|| anyhow!("Power-saving profile {name} has an invalid format"))?;
         let active = match profile.get("Activate") {
             None => false,
             Some(Value::Bool(active)) => *active,
-            Some(_) => bail!("профиль энергосбережения {name} имеет неверный статус Activate"),
+            Some(_) => bail!("Power-saving profile {name} has an invalid Activate status"),
         };
         let scheduled = if active {
             profile.get("Type").and_then(Value::as_str) == Some("Scheduled")
@@ -1373,7 +1375,7 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
         result.insert(name.to_owned(), Value::Bool(scheduled));
     }
     if result.is_empty() {
-        bail!("роутер не вернул распознанных профилей энергосбережения");
+        bail!("Router returned no recognized power-saving profiles");
     }
     Ok(Value::Object(result))
 }
@@ -1382,13 +1384,13 @@ fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
     let access_points = value
         .get("accessPointList")
         .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный список IoT-точек доступа"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of IoT access points"))?;
     let mut any_enabled = false;
     for access_point in access_points {
         let enabled = access_point
             .get("isEnabled")
             .and_then(Value::as_bool)
-            .ok_or_else(|| anyhow!("у IoT-точки доступа нет корректного статуса isEnabled"))?;
+            .ok_or_else(|| anyhow!("IoT access point has no valid isEnabled status"))?;
         any_enabled |= enabled;
     }
     Ok(any_enabled)
@@ -1397,7 +1399,7 @@ fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
 fn sanitize_television_dashboard_state(value: &Value) -> Result<bool> {
     let state = value
         .get("state")
-        .ok_or_else(|| anyhow!("роутер не сообщил состояние IPTV"))?;
+        .ok_or_else(|| anyhow!("Router did not report the IPTV state"))?;
     match state {
         Value::Bool(enabled) => Ok(*enabled),
         Value::Number(enabled)
@@ -1407,7 +1409,7 @@ fn sanitize_television_dashboard_state(value: &Value) -> Result<bool> {
         {
             Ok(enabled.as_i64() == Some(1))
         }
-        _ => bail!("роутер вернул неподдерживаемый формат состояния IPTV"),
+        _ => bail!("Router returned an unsupported IPTV state format"),
     }
 }
 
@@ -1415,20 +1417,20 @@ fn sanitize_voice_dashboard_status(trunk: &Value, calls: &Value) -> Result<Value
     let enabled = trunk
         .get("isEnabled")
         .and_then(Value::as_bool)
-        .ok_or_else(|| anyhow!("роутер не сообщил состояние телефонной линии"))?;
+        .ok_or_else(|| anyhow!("Router did not report the phone line status"))?;
     let calls = calls
         .as_array()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный список звонков"))?;
+        .ok_or_else(|| anyhow!("Router returned an unexpected call list"))?;
     let mut missed_calls = 0u64;
     for call in calls {
         let call_type = call
             .get("type")
             .and_then(Value::as_str)
-            .ok_or_else(|| anyhow!("в записи журнала звонков нет типа"))?;
+            .ok_or_else(|| anyhow!("Call log entry has no type"))?;
         if call_type == "missed" {
             missed_calls = missed_calls
                 .checked_add(1)
-                .ok_or_else(|| anyhow!("счётчик пропущенных звонков переполнен"))?;
+                .ok_or_else(|| anyhow!("Missed call counter overflowed"))?;
         }
     }
     Ok(json!({ "lineEnabled": enabled, "missedCalls": missed_calls }))
@@ -1443,7 +1445,7 @@ fn set_dashboard_favorite_in_settings(
     let categories = settings
         .get_mut("categories")
         .and_then(Value::as_object_mut)
-        .ok_or_else(|| anyhow!("в настройках dashboard нет списка категорий"))?;
+        .ok_or_else(|| anyhow!("Dashboard settings contain no category list"))?;
     let mut matches = 0;
     for (category, entries) in categories.iter_mut() {
         if category.eq_ignore_ascii_case("Favorites") {
@@ -1451,7 +1453,7 @@ fn set_dashboard_favorite_in_settings(
         }
         let entries = entries
             .as_array_mut()
-            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+            .ok_or_else(|| anyhow!("Dashboard category {category:?} has an invalid format"))?;
         for entry in entries {
             if entry.get("name").and_then(Value::as_str) == Some(tile) {
                 entry["isFavorite"] = Value::Bool(favorite);
@@ -1460,10 +1462,10 @@ fn set_dashboard_favorite_in_settings(
         }
     }
     if matches == 0 {
-        bail!("плитка dashboard {tile:?} не найдена");
+        bail!("Dashboard tile {tile:?} was not found");
     }
     if matches > 1 {
-        bail!("плитка dashboard {tile:?} встречается в нескольких категориях");
+        bail!("Dashboard tile {tile:?} appears in multiple categories");
     }
 
     let favorites_key = categories
@@ -1475,7 +1477,7 @@ fn set_dashboard_favorite_in_settings(
         .entry(favorites_key)
         .or_insert_with(|| Value::Array(Vec::new()))
         .as_array_mut()
-        .ok_or_else(|| anyhow!("категория Favorites имеет неверный формат"))?;
+        .ok_or_else(|| anyhow!("Favorites category has an invalid format"))?;
     if favorite {
         if let Some(entry) = entries
             .iter_mut()
@@ -1488,7 +1490,7 @@ fn set_dashboard_favorite_in_settings(
                 .filter_map(|entry| entry.get("index").and_then(Value::as_u64))
                 .max()
                 .map_or(Some(0), |index| index.checked_add(1))
-                .ok_or_else(|| anyhow!("индекс плитки Favorites переполнен"))?;
+                .ok_or_else(|| anyhow!("Favorites tile index overflowed"))?;
             entries.push(json!({ "name": tile, "index": index, "isFavorite": true }));
         }
     } else {
@@ -1514,7 +1516,7 @@ fn validate_dashboard_tile_name(tile: &str) -> Result<()> {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     {
         bail!(
-            "имя плитки dashboard должно содержать только латиницу, цифры, дефис и подчёркивание"
+            "Dashboard tile name must contain only ASCII letters, digits, hyphens, and underscores"
         );
     }
     Ok(())
@@ -1527,7 +1529,7 @@ fn validate_dashboard_category_name(category: &str) -> Result<()> {
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     {
-        bail!("неизвестный формат имени категории dashboard");
+        bail!("Unknown dashboard category name format");
     }
     Ok(())
 }
@@ -1536,7 +1538,9 @@ fn sanitize_dynamic_dns_hosts(value: &Value) -> Result<Value> {
     let mut hosts = Vec::new();
     collect_dynamic_dns_hosts(value, &mut hosts);
     if has_unrecognized_dynamic_dns_entry(value, false) {
-        bail!("в DynDNS-ответе есть нераспознанные записи; список не выведен и изменение отменено");
+        bail!(
+            "DynDNS response contains unrecognized entries; list was not displayed and change was canceled"
+        );
     }
     if hosts.is_empty()
         && !is_empty_supported_collection(
@@ -1545,7 +1549,7 @@ fn sanitize_dynamic_dns_hosts(value: &Value) -> Result<Value> {
             &["status", "count", "total", "data", "result"],
         )
     {
-        bail!("роутер вернул неизвестный формат DynDNS-хостов; содержимое не выведено");
+        bail!("Router returned an unknown DynDNS host format; contents were not displayed");
     }
     Ok(Value::Array(hosts))
 }
@@ -1595,7 +1599,9 @@ fn sanitize_pinholes(value: &Value) -> Result<Value> {
     let mut pinholes = Vec::new();
     collect_pinholes(value, &mut pinholes);
     if has_unrecognized_pinhole_entry(value, false) {
-        bail!("в ответе есть нераспознанные IPv6-правила; список не выведен и изменение отменено");
+        bail!(
+            "Response contains unrecognized IPv6 rules; list was not displayed and change was canceled"
+        );
     }
     if pinholes.is_empty()
         && !is_empty_supported_collection(
@@ -1604,7 +1610,7 @@ fn sanitize_pinholes(value: &Value) -> Result<Value> {
             &["status", "count", "total", "data", "result"],
         )
     {
-        bail!("роутер вернул неизвестный формат IPv6 pinhole-правил; содержимое не выведено");
+        bail!("Router returned an unknown IPv6 pinhole rule format; contents were not displayed");
     }
     Ok(Value::Array(pinholes))
 }
@@ -1798,7 +1804,7 @@ fn is_public_pinhole_field(key: &str) -> bool {
 
 fn find_pinhole<'a>(pinholes: &'a Value, name: &str) -> Result<Option<&'a Value>> {
     let Some(entries) = pinholes.as_array() else {
-        bail!("внутренняя ошибка: список IPv6-правил не является массивом");
+        bail!("Internal error: IPv6 rule list is not an array");
     };
     let mut matches = entries.iter().filter(|entry| {
         ["id", "Id", "ID", "description", "Description"]
@@ -1807,7 +1813,7 @@ fn find_pinhole<'a>(pinholes: &'a Value, name: &str) -> Result<Option<&'a Value>
     });
     let first = matches.next();
     if matches.next().is_some() {
-        bail!("имя {name:?} совпадает с несколькими IPv6-правилами; удаление отменено");
+        bail!("Name {name:?} matches multiple IPv6 rules; deletion was canceled");
     }
     Ok(first)
 }
@@ -2124,11 +2130,11 @@ fn normalize_mac_address(mac: &str) -> Result<String> {
             .iter()
             .any(|octet| octet.len() != 2 || !octet.bytes().all(|byte| byte.is_ascii_hexdigit()))
     {
-        bail!("неверный MAC-адрес; ожидается формат AA:BB:CC:DD:EE:FF");
+        bail!("Invalid MAC address; expected format AA:BB:CC:DD:EE:FF");
     }
     let first_octet = u8::from_str_radix(octets[0], 16)?;
     if first_octet & 1 != 0 {
-        bail!("для управления устройством нужен unicast MAC-адрес");
+        bail!("A unicast MAC address is required to manage the device");
     }
     Ok(mac.to_ascii_uppercase())
 }
