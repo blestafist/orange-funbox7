@@ -205,6 +205,16 @@ impl Router {
         self.client.call("IoTService", "getStatus", json!({}))
     }
 
+    pub fn television(&self) -> Result<Value> {
+        let status = self
+            .client
+            .call("NMC.OrangeTV", "getIPTVStatus", json!({}))?;
+        let channels = self
+            .client
+            .call("NMC.OrangeTV", "getIPTVConfig", json!({}))?;
+        Ok(json!({ "status": status, "channels": channels }))
+    }
+
     pub fn forwards(&self) -> Result<Value> {
         self.client.call(
             "Firewall",

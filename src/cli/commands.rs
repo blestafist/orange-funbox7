@@ -406,6 +406,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let status = router.iot_status()?;
             println!("{}", pretty_redacted(&status)?);
         }
+        Command::Television => {
+            let television = router.television()?;
+            println!("{}", pretty_redacted(&television)?);
+        }
         Command::Lan => {
             let lan = router.lan()?;
             show_lan(&lan)?;

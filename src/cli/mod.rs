@@ -108,6 +108,8 @@ pub enum Command {
     WifiSteering,
     /// Статус IoT-сервиса роутера
     IotStatus,
+    /// Состояние IPTV и параметры каналов Orange TV
+    Television,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
