@@ -155,6 +155,8 @@ pub enum Command {
     Ipv6,
     /// Системное время и часовой пояс
     Time,
+    /// Список серверов синхронизации времени
+    NtpServers,
     /// Профили энергосбережения
     EnergyProfiles,
     /// Параметры Smart Wi-Fi / steering

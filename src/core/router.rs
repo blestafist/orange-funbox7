@@ -576,6 +576,11 @@ impl Router {
         Ok(json!({ "time": current, "timezone": timezone }))
     }
 
+    pub fn ntp_servers(&self) -> Result<Value> {
+        let servers = self.client.call("Time", "getNTPServers", json!({}))?;
+        Ok(sanitize_ntp_servers(&servers))
+    }
+
     pub fn reboot(&self) -> Result<Value> {
         self.client.call("NMC", "reboot", json!({}))
     }
@@ -888,6 +893,31 @@ fn sanitize_remote_access_status(value: &Value) -> Value {
     )
 }
 
+fn sanitize_ntp_servers(value: &Value) -> Value {
+    let Some(servers) = value.as_object().and_then(|fields| {
+        fields
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case("servers"))
+            .map(|(_, value)| value)
+    }) else {
+        return Value::Array(Vec::new());
+    };
+
+    let values = match servers {
+        Value::Array(values) => values.iter().collect::<Vec<_>>(),
+        Value::Object(values) => values.values().collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
+
+    Value::Array(
+        values
+            .into_iter()
+            .filter_map(Value::as_str)
+            .map(|server| Value::String(server.to_owned()))
+            .collect(),
+    )
+}
+
 fn sanitize_device_schedules(value: &Value) -> Value {
     let mut records = Vec::new();
     collect_device_schedules(value, &mut records);
@@ -980,7 +1010,7 @@ mod tests {
 
     use super::{
         filter_blocked_schedules, find_device_schedule, find_forward, normalize_mac_address,
-        sanitize_device_schedules, sanitize_enable_status, sanitize_leases,
+        sanitize_device_schedules, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
         sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
         sanitize_wan_stats, validate_forward_name, validate_forward_protocol, validate_lan_config,
         validate_lan_destination,
@@ -1237,5 +1267,21 @@ mod tests {
         );
         assert!(normalize_mac_address("01:00:5E:00:00:01").is_err());
         assert!(normalize_mac_address("invalid").is_err());
+    }
+
+    #[test]
+    fn ntp_server_output_contains_only_server_addresses() {
+        let servers = serde_json::json!({
+            "servers": {
+                "first": "ntp.example.net",
+                "second": "192.0.2.10"
+            },
+            "password": "must-not-leak"
+        });
+
+        assert_eq!(
+            sanitize_ntp_servers(&servers),
+            serde_json::json!(["ntp.example.net", "192.0.2.10"])
+        );
     }
 }

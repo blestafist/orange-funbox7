@@ -838,6 +838,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let time = router.time()?;
             println!("{}", pretty_redacted(&time)?);
         }
+        Command::NtpServers => {
+            let servers = router.ntp_servers()?;
+            println!("{}", pretty_redacted(&servers)?);
+        }
         Command::Reserve { mac, ip } => {
             let mac = normalize_mac(mac)?;
             let ip = validate_ipv4(ip)?;

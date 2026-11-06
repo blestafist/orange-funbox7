@@ -68,6 +68,7 @@ cargo run -- dmz-set 192.168.1.25 # направить входящий траф
 cargo run -- dmz-clear # снять DMZ, спросит подтверждение
 cargo run -- ipv6         # параметры IPv6
 cargo run -- time         # время роутера и часовой пояс
+cargo run -- ntp-servers  # серверы синхронизации времени
 cargo run -- reserve AA:BB:CC:DD:EE:FF 192.168.1.25 # DHCP-резервация
 cargo run -- unreserve AA:BB:CC:DD:EE:FF # удалить резервацию
 cargo run -- wifi on      # включить Wi-Fi, спросит подтверждение
