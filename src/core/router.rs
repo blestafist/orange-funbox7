@@ -130,7 +130,7 @@ impl Router {
         dhcp_min: Ipv4Addr,
         dhcp_max: Ipv4Addr,
     ) -> Result<Value> {
-        validate_lan_config(address, netmask, dhcp_min, dhcp_max)?;
+        Self::validate_lan_settings(address, netmask, dhcp_min, dhcp_max)?;
         self.client.call(
             "NMC",
             "setLANIP",
@@ -142,6 +142,15 @@ impl Router {
                 "DHCPMaxAddress": dhcp_max.to_string()
             }),
         )
+    }
+
+    pub fn validate_lan_settings(
+        address: Ipv4Addr,
+        netmask: Ipv4Addr,
+        dhcp_min: Ipv4Addr,
+        dhcp_max: Ipv4Addr,
+    ) -> Result<()> {
+        validate_lan_config(address, netmask, dhcp_min, dhcp_max)
     }
 
     pub fn validate_lan_destination(&self, destination: Ipv4Addr) -> Result<()> {

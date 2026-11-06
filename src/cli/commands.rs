@@ -424,6 +424,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             dhcp_max,
             dhcp,
         } => {
+            Router::validate_lan_settings(*address, *netmask, *dhcp_min, *dhcp_max)?;
             let dhcp_enabled = matches!(dhcp, DhcpAction::On);
             let prompt = format!(
                 "Установить LAN {address}/{netmask}, DHCP {} ({dhcp_min}–{dhcp_max})? При смене адреса соединение с роутером может оборваться.",
