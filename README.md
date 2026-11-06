@@ -17,6 +17,7 @@ cargo run -- leds         # состояния световых индикато
 cargo run -- users        # пользователи панели, только безопасные поля
 cargo run -- wan          # состояние подключения
 cargo run -- wifi         # состояние Wi-Fi
+cargo run -- wifi-open-mode # статус Open Mode без вывода SSID
 cargo run -- wifi-config  # расширенные параметры точек доступа (секреты скрыты)
 cargo run -- wifi-clients # активные Wi-Fi-клиенты
 cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
@@ -27,6 +28,7 @@ cargo run -- iot-status    # состояние IoT-сервиса
 cargo run -- television   # статус IPTV и конфигурация каналов Orange TV
 cargo run -- voice        # настройки телефонии с маскировкой паролей
 cargo run -- devices      # таблица активных DHCP-устройств
+cargo run -- all-devices  # Wi-Fi, Ethernet, USB и DECT
 cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP

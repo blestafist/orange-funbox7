@@ -50,11 +50,35 @@ impl Router {
         )
     }
 
+    pub fn wifi_open_mode(&self) -> Result<Value> {
+        let status = self
+            .client
+            .call("Wificom.OpenMode", "getStatus", json!({}))?;
+        Ok(sanitize_open_mode_status(&status))
+    }
+
     pub fn devices(&self) -> Result<Value> {
         self.client.call(
             "Devices",
             "get",
             json!({ "expression": "edev && physical && dhcp and .Active==true" }),
+        )
+    }
+
+    pub fn all_devices(&self) -> Result<Value> {
+        self.client.call(
+            "Devices",
+            "get",
+            json!({
+                "expression": {
+                    "usbM2M": " usb && wmbus and .Active==true",
+                    "usb": " printer && physical and .Active==true",
+                    "usblogical": "volume && logical and .Active==true",
+                    "wifi": "(wifi and (edev || wifi_bridge) and .Active == true)",
+                    "eth": "(eth and (edev || wifi_bridge) and .Active == true)",
+                    "dect": "voice && dect && handset && physical"
+                }
+            }),
         )
     }
 
@@ -650,13 +674,29 @@ fn is_public_user_field(key: &str) -> bool {
         .any(|allowed| key.eq_ignore_ascii_case(allowed))
 }
 
+fn sanitize_open_mode_status(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(key, _)| {
+                key.eq_ignore_ascii_case("enable") || key.eq_ignore_ascii_case("status")
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, sanitize_users, validate_forward_name, validate_forward_protocol,
-        validate_lan_config, validate_lan_destination,
+        find_forward, sanitize_open_mode_status, sanitize_users, validate_forward_name,
+        validate_forward_protocol, validate_lan_config, validate_lan_destination,
     };
 
     #[test]
@@ -784,5 +824,20 @@ mod tests {
         assert!(serialized.contains("administrators"));
         assert!(!serialized.contains("must-not-leak"));
         assert!(!serialized.contains("PasswordHash"));
+    }
+
+    #[test]
+    fn open_mode_output_contains_only_status_fields() {
+        let status = serde_json::json!({
+            "Enable": true,
+            "Status": false,
+            "SSID": "private-network",
+            "Password": "must-not-leak"
+        });
+
+        assert_eq!(
+            sanitize_open_mode_status(&status),
+            serde_json::json!({ "Enable": true, "Status": false })
+        );
     }
 }

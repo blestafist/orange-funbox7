@@ -111,11 +111,11 @@ fn string_field<'a>(value: &'a Value, keys: &[&str]) -> &'a str {
 }
 
 fn show_devices(value: &Value, summary: &str) -> Result<()> {
-    let devices = match value {
-        Value::Array(devices) => devices.iter().collect::<Vec<_>>(),
-        Value::Object(devices) => devices.values().collect::<Vec<_>>(),
-        _ => bail!("роутер вернул неожиданный формат списка устройств"),
-    };
+    if !value.is_array() && !value.is_object() {
+        bail!("роутер вернул неожиданный формат списка устройств");
+    }
+    let mut devices = Vec::new();
+    collect_device_records(value, &mut devices);
 
     println!(
         "{:<26} {:<16} {:<18} {:<16} СЕТЬ",
@@ -134,7 +134,7 @@ fn show_devices(value: &Value, summary: &str) -> Result<()> {
             .filter(|name| !name.is_empty())
             .unwrap_or(fallback_name);
         let ip = string_field(device, &["IPAddress"]);
-        let mac = string_field(device, &["PhysAddress"]);
+        let mac = string_field(device, &["PhysAddress", "MACAddress"]);
         let kind = string_field(device, &["DeviceType", "DeviceCategory"]);
         let network = string_field(device, &["InterfaceName", "Layer2Interface"]);
         println!(
@@ -148,6 +148,38 @@ fn show_devices(value: &Value, summary: &str) -> Result<()> {
     }
     println!("\n{summary}: {}", devices.len());
     Ok(())
+}
+
+fn collect_device_records<'a>(value: &'a Value, records: &mut Vec<&'a Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_device_records(entry, records);
+            }
+        }
+        Value::Object(fields) if is_device_record(fields) => records.push(value),
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_device_records(entry, records);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_device_record(fields: &serde_json::Map<String, Value>) -> bool {
+    [
+        "PhysAddress",
+        "MACAddress",
+        "IPAddress",
+        "BDD",
+        "InterfaceName",
+        "Layer2Interface",
+        "DeviceType",
+        "DeviceCategory",
+    ]
+    .iter()
+    .any(|key| fields.contains_key(*key))
 }
 
 fn show_networks(value: &Value) -> Result<()> {
@@ -365,9 +397,17 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             println!("Команда отправлена.");
             show_wifi(&router.wifi_status()?);
         }
+        Command::WifiOpenMode => {
+            let status = router.wifi_open_mode()?;
+            println!("{}", pretty_redacted(&status)?);
+        }
         Command::Devices => {
             let devices = router.devices()?;
             show_devices(&devices, "Активных DHCP-устройств")?;
+        }
+        Command::AllDevices => {
+            let devices = router.all_devices()?;
+            show_devices(&devices, "Устройств из всех доступных категорий")?;
         }
         Command::DeviceHistory => {
             let devices = router.device_history()?;
@@ -651,7 +691,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalize_mac, pretty_redacted, validate_ipv4};
+    use super::{collect_device_records, normalize_mac, pretty_redacted, validate_ipv4};
 
     #[test]
     fn normalizes_mac_addresses() {
@@ -687,5 +727,32 @@ mod tests {
         assert!(!output.contains("also-secret"));
         assert!(!output.contains("\"secret\""));
         assert_eq!(output.matches("[СКРЫТО]").count(), 3);
+    }
+
+    #[test]
+    fn flattens_grouped_device_results() {
+        let grouped = serde_json::json!({
+            "usb": {
+                "printer": {
+                    "Name": "Printer",
+                    "IPAddress": "192.168.1.20",
+                    "PhysAddress": "AA:BB:CC:DD:EE:FF"
+                }
+            },
+            "wifi": [
+                {
+                    "Name": "Phone",
+                    "IPAddress": "192.168.1.21",
+                    "MACAddress": "11:22:33:44:55:66"
+                }
+            ],
+            "metadata": { "count": 2 }
+        });
+        let mut records = Vec::new();
+        collect_device_records(&grouped, &mut records);
+
+        assert_eq!(records.len(), 2);
+        assert_eq!(records[0]["IPAddress"], "192.168.1.20");
+        assert_eq!(records[1]["IPAddress"], "192.168.1.21");
     }
 }

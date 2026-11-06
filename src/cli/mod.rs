@@ -41,10 +41,14 @@ pub enum Command {
         #[arg(value_enum)]
         action: Option<WifiAction>,
     },
+    /// Статус Open Mode Wi-Fi
+    WifiOpenMode,
     /// Состояние подключения к интернету
     Wan,
     /// Список активных DHCP-устройств
     Devices,
+    /// Сводный список устройств Wi-Fi, Ethernet, USB и DECT
+    AllDevices,
     /// Устройства, ранее подключавшиеся к роутеру
     DeviceHistory,
     /// SSID, состояние точек доступа и подключённые Wi-Fi-клиенты
