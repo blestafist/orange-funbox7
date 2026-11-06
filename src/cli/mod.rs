@@ -78,6 +78,8 @@ pub enum Command {
     Leases,
     /// Текущие DHCP-аренды (динамические и зарезервированные)
     CurrentLeases,
+    /// Параметры DHCP-пула, включая срок аренды и DNS
+    DhcpSettings,
     /// Текущий уровень firewall или задать новый
     Firewall {
         #[arg(value_enum)]

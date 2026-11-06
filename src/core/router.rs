@@ -244,6 +244,11 @@ impl Router {
         Ok(sanitize_leases(&leases))
     }
 
+    pub fn dhcp_settings(&self) -> Result<Value> {
+        self.client
+            .call("DHCPv4.Server.Pool.default", "get", json!({}))
+    }
+
     pub fn add_lease(&self, mac: &str, ip: &str) -> Result<Value> {
         self.client.call(
             "DHCPv4.Server.Pool.default",

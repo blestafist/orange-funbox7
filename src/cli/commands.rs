@@ -595,6 +595,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let leases = router.current_leases()?;
             show_current_leases(&leases)?;
         }
+        Command::DhcpSettings => {
+            let settings = router.dhcp_settings()?;
+            println!("{}", pretty_redacted(&settings)?);
+        }
         Command::Firewall { level: None } => {
             let level = router.firewall_level()?;
             println!("Уровень firewall: {level}");

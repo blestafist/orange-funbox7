@@ -38,6 +38,7 @@ cargo run -- network-details # LAN-интерфейсы и радио
 cargo run -- internet-details # WAN, IPv6, VLAN, MTU и сведения PPP (если доступны)
 cargo run -- leases       # закреплённые DHCP-адреса
 cargo run -- current-leases # текущие DHCP-аренды
+cargo run -- dhcp-settings # настройки DHCP-пула, срок аренды и DNS
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
 cargo run -- guest        # состояние и параметры гостевой Wi-Fi сети
