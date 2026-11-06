@@ -215,6 +215,10 @@ impl Router {
         Ok(json!({ "status": status, "channels": channels }))
     }
 
+    pub fn voice(&self) -> Result<Value> {
+        self.client.call("NMC", "getVoIPConfig", json!({}))
+    }
+
     pub fn forwards(&self) -> Result<Value> {
         self.client.call(
             "Firewall",

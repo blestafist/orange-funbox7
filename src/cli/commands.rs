@@ -410,6 +410,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let television = router.television()?;
             println!("{}", pretty_redacted(&television)?);
         }
+        Command::Voice => {
+            let voice = router.voice()?;
+            println!("{}", pretty_redacted(&voice)?);
+        }
         Command::Lan => {
             let lan = router.lan()?;
             show_lan(&lan)?;

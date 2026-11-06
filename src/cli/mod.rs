@@ -110,6 +110,8 @@ pub enum Command {
     IotStatus,
     /// Состояние IPTV и параметры каналов Orange TV
     Television,
+    /// Конфигурация телефонии; пароли в ответе маскируются
+    Voice,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

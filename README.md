@@ -23,6 +23,7 @@ cargo run -- wifi-schedule # расписание Wi-Fi
 cargo run -- wifi-steering # настройки Smart Wi-Fi
 cargo run -- iot-status    # состояние IoT-сервиса
 cargo run -- television   # статус IPTV и конфигурация каналов Orange TV
+cargo run -- voice        # настройки телефонии с маскировкой паролей
 cargo run -- devices      # таблица активных DHCP-устройств
 cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
