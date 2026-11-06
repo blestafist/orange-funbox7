@@ -342,6 +342,23 @@ fn show_current_leases(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn show_blocked_devices(value: &Value) -> Result<()> {
+    let devices = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат списка блокировок"))?;
+    if devices.is_empty() {
+        println!("Заблокированных устройств нет.");
+        return Ok(());
+    }
+
+    println!("Устройства без доступа в Интернет:");
+    for device in devices {
+        println!("  {}", string_field(device, &["ID"]));
+    }
+    println!("Всего: {}", devices.len());
+    Ok(())
+}
+
 fn yes_no_field(value: Option<&Value>) -> &'static str {
     match value {
         Some(Value::Bool(true)) => "да",
@@ -563,6 +580,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::WifiSchedule => {
             let schedule = router.wifi_schedule()?;
             println!("{}", pretty_redacted(&schedule)?);
+        }
+        Command::BlockedDevices => {
+            let blocked = router.blocked_devices()?;
+            show_blocked_devices(&blocked)?;
         }
         Command::WifiSteering => {
             let steering = router.wifi_steering()?;

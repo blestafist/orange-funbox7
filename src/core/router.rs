@@ -148,6 +148,13 @@ impl Router {
         )
     }
 
+    pub fn blocked_devices(&self) -> Result<Value> {
+        let schedules = self
+            .client
+            .call("Scheduler", "getSchedules", json!({ "type": "ToD" }))?;
+        Ok(sanitize_blocked_devices(&schedules))
+    }
+
     pub fn wifi_steering(&self) -> Result<Value> {
         let master = self
             .client
@@ -834,14 +841,55 @@ fn sanitize_remote_access_status(value: &Value) -> Value {
     )
 }
 
+fn sanitize_blocked_devices(value: &Value) -> Value {
+    let mut records = Vec::new();
+    collect_blocked_devices(value, &mut records);
+    Value::Array(records)
+}
+
+fn collect_blocked_devices(value: &Value, records: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_blocked_devices(entry, records);
+            }
+        }
+        Value::Object(fields) if fields.keys().any(|key| key.eq_ignore_ascii_case("ID")) => {
+            let blocked = fields.iter().any(|(key, value)| {
+                key.eq_ignore_ascii_case("value") && value.as_str() == Some("Disable")
+            });
+            if blocked {
+                records.push(Value::Object(
+                    fields
+                        .iter()
+                        .filter(|(key, _)| {
+                            ["ID", "enable", "override", "value"]
+                                .iter()
+                                .any(|allowed| key.eq_ignore_ascii_case(allowed))
+                        })
+                        .map(|(key, value)| (key.clone(), value.clone()))
+                        .collect(),
+                ));
+            }
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_blocked_devices(entry, records);
+            }
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, sanitize_enable_status, sanitize_leases, sanitize_open_mode_status,
-        sanitize_remote_access_status, sanitize_users, sanitize_wan_stats, validate_forward_name,
-        validate_forward_protocol, validate_lan_config, validate_lan_destination,
+        find_forward, sanitize_blocked_devices, sanitize_enable_status, sanitize_leases,
+        sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
+        sanitize_wan_stats, validate_forward_name, validate_forward_protocol, validate_lan_config,
+        validate_lan_destination,
     };
 
     #[test]
@@ -1056,5 +1104,31 @@ mod tests {
             sanitize_remote_access_status(&status),
             serde_json::json!({ "Enable": true, "Port": 443, "Secure": true, "Timeout": 0 })
         );
+    }
+
+    #[test]
+    fn blocked_device_output_contains_only_blocked_schedule_fields() {
+        let schedules = serde_json::json!({
+            "scheduleInfo": [
+                {
+                    "ID": "AA:BB:CC:DD:EE:FF",
+                    "enable": true,
+                    "override": "",
+                    "value": "Disable",
+                    "Password": "must-not-leak"
+                },
+                {
+                    "ID": "11:22:33:44:55:66",
+                    "enable": true,
+                    "override": "",
+                    "value": "Enable"
+                }
+            ]
+        });
+
+        let blocked = sanitize_blocked_devices(&schedules);
+        assert_eq!(blocked.as_array().unwrap().len(), 1);
+        assert_eq!(blocked[0]["ID"], "AA:BB:CC:DD:EE:FF");
+        assert!(!blocked.to_string().contains("must-not-leak"));
     }
 }

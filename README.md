@@ -28,6 +28,7 @@ cargo run -- wifi-clients # активные Wi-Fi-клиенты
 cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
 cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
 cargo run -- wifi-schedule # расписание Wi-Fi
+cargo run -- blocked-devices # устройства с ограничением доступа в Интернет
 cargo run -- wifi-steering # настройки Smart Wi-Fi
 cargo run -- iot-status    # состояние IoT-сервиса
 cargo run -- television   # статус IPTV и конфигурация каналов Orange TV
@@ -87,6 +88,7 @@ cargo run -- --host 192.168.1.1 --user admin status
 Клиент хранит сессионную cookie только в памяти на время запуска, отправляет `releaseContext` при завершении команды и не сохраняет пароль или токен в проекте. API этой прошивки доступен по HTTP, поэтому запускай CLI только из доверенной локальной сети.
 
 Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, `remote-access`, управление WPS, `wan-stats` и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
+`blocked-devices` показывает только блокировку выхода в Интернет; она не изолирует устройство от других узлов локальной сети.
 
 ## Архитектура
 
