@@ -677,6 +677,17 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let settings = router.dhcp_settings()?;
             println!("{}", pretty_redacted(&settings)?);
         }
+        Command::DhcpLeaseTime { seconds } => {
+            Router::validate_dhcp_lease_time(*seconds)?;
+            let prompt =
+                format!("Установить срок DHCP-аренды {seconds} секунд (от 60 секунд до 365 дней)?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_dhcp_lease_time(*seconds)?;
+            println!("Срок DHCP-аренды обновлён.");
+        }
         Command::Firewall { level: None } => {
             let level = router.firewall_level()?;
             println!("Уровень firewall: {level}");

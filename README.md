@@ -46,6 +46,7 @@ cargo run -- internet-details # WAN, IPv6, VLAN, MTU и сведения PPP (е
 cargo run -- leases       # закреплённые DHCP-адреса
 cargo run -- current-leases # текущие DHCP-аренды
 cargo run -- dhcp-settings # настройки DHCP-пула, срок аренды и DNS
+cargo run -- dhcp-lease-time 86400 # установить срок аренды в секундах, спросит подтверждение
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
 cargo run -- guest        # состояние и параметры гостевой Wi-Fi сети
@@ -90,7 +91,7 @@ cargo run -- --host 192.168.1.1 --user admin status
 
 Клиент хранит сессионную cookie только в памяти на время запуска, отправляет `releaseContext` при завершении команды и не сохраняет пароль или токен в проекте. API этой прошивки доступен по HTTP, поэтому запускай CLI только из доверенной локальной сети.
 
-Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, `remote-access`, управление WPS, `wan-stats` и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
+Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, `remote-access`, управление WPS, `wan-stats`, срок DHCP-аренды и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
 `blocked-devices` показывает только блокировку выхода в Интернет; она не изолирует устройство от других узлов локальной сети.
 `block-device` и `unblock-device` также управляют только доступом в Интернет; обе команды требуют подтверждения.
 

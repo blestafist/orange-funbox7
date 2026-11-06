@@ -315,6 +315,19 @@ impl Router {
             .call("DHCPv4.Server.Pool.default", "get", json!({}))
     }
 
+    pub fn set_dhcp_lease_time(&self, seconds: u32) -> Result<Value> {
+        Self::validate_dhcp_lease_time(seconds)?;
+        self.client.call(
+            "DHCPv4.Server.Pool.default",
+            "setLeaseTime",
+            json!({ "leasetime": seconds }),
+        )
+    }
+
+    pub fn validate_dhcp_lease_time(seconds: u32) -> Result<()> {
+        validate_dhcp_lease_time(seconds)
+    }
+
     pub fn add_lease(&self, mac: &str, ip: &str) -> Result<Value> {
         self.client.call(
             "DHCPv4.Server.Pool.default",
@@ -601,6 +614,13 @@ fn validate_forward_name(name: &str) -> Result<()> {
 fn validate_forward_protocol(protocol: &str) -> Result<()> {
     if !matches!(protocol, "6" | "17" | "6,17") {
         bail!("протокол должен быть TCP, UDP или both");
+    }
+    Ok(())
+}
+
+fn validate_dhcp_lease_time(seconds: u32) -> Result<()> {
+    if !(60..=31_536_000).contains(&seconds) {
+        bail!("срок DHCP-аренды должен быть от 60 секунд до 365 дней");
     }
     Ok(())
 }
@@ -1012,8 +1032,8 @@ mod tests {
         filter_blocked_schedules, find_device_schedule, find_forward, normalize_mac_address,
         sanitize_device_schedules, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
         sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
-        sanitize_wan_stats, validate_forward_name, validate_forward_protocol, validate_lan_config,
-        validate_lan_destination,
+        sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
+        validate_forward_protocol, validate_lan_config, validate_lan_destination,
     };
 
     #[test]
@@ -1025,6 +1045,15 @@ mod tests {
         assert!(validate_forward_protocol("17").is_ok());
         assert!(validate_forward_protocol("6,17").is_ok());
         assert!(validate_forward_protocol("tcp").is_err());
+    }
+
+    #[test]
+    fn validates_dhcp_lease_time_bounds() {
+        assert!(validate_dhcp_lease_time(60).is_ok());
+        assert!(validate_dhcp_lease_time(86_400).is_ok());
+        assert!(validate_dhcp_lease_time(31_536_000).is_ok());
+        assert!(validate_dhcp_lease_time(59).is_err());
+        assert!(validate_dhcp_lease_time(31_536_001).is_err());
     }
 
     #[test]

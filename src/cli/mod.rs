@@ -87,6 +87,8 @@ pub enum Command {
     CurrentLeases,
     /// Параметры DHCP-пула, включая срок аренды и DNS
     DhcpSettings,
+    /// Изменить срок действия DHCP-адреса (с подтверждением)
+    DhcpLeaseTime { seconds: u32 },
     /// Текущий уровень firewall или задать новый
     Firewall {
         #[arg(value_enum)]
