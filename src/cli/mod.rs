@@ -95,6 +95,17 @@ pub enum Command {
     UpnpForwards,
     /// Детали firewall: ping, DMZ и пользовательские правила
     FirewallDetails,
+    /// Читать или менять ответ firewall на ping из Интернета
+    FirewallPing {
+        #[arg(value_enum)]
+        action: Option<WifiAction>,
+    },
+    /// Текущее правило DMZ
+    Dmz,
+    /// Направить весь входящий трафик на частный LAN-адрес
+    DmzSet { destination: std::net::Ipv4Addr },
+    /// Удалить правило DMZ
+    DmzClear,
     /// Добавить DHCP-резервацию для MAC и IPv4
     Reserve { mac: String, ip: String },
     /// Удалить DHCP-резервацию по MAC

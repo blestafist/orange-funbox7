@@ -547,6 +547,56 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let details = router.firewall_details()?;
             println!("{}", pretty_redacted(&details)?);
         }
+        Command::FirewallPing { action: None } => {
+            let policy = router.firewall_ping_response()?;
+            println!("{}", pretty_redacted(&policy)?);
+        }
+        Command::FirewallPing {
+            action: Some(action),
+        } => {
+            let enabled = matches!(action, WifiAction::On);
+            let prompt = if enabled {
+                "Разрешить ответы firewall на ping из Интернета (IPv4 и IPv6)?"
+            } else {
+                "Запретить ответы firewall на ping из Интернета (IPv4 и IPv6)?"
+            };
+            if !cli.yes && !confirm_action(prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            let result = router.set_firewall_ping_response(enabled)?;
+            println!("{}", pretty_redacted(&result)?);
+        }
+        Command::Dmz => {
+            let dmz = router.dmz()?;
+            println!("{}", pretty_redacted(&dmz)?);
+        }
+        Command::DmzSet { destination } => {
+            if !destination.is_private() {
+                bail!("DMZ разрешено направлять только на частный LAN IPv4-адрес");
+            }
+            let prompt = format!(
+                "ВНИМАНИЕ: направить весь входящий интернет-трафик на {destination}? Это уменьшит защиту этого устройства."
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            let result = router.set_dmz(*destination)?;
+            println!("{}", pretty_redacted(&result)?);
+        }
+        Command::DmzClear => {
+            if !cli.yes
+                && !confirm_action(
+                    "Удалить правило DMZ и прекратить перенаправление всего входящего трафика?",
+                )?
+            {
+                println!("Отменено.");
+                return Ok(());
+            }
+            let result = router.clear_dmz()?;
+            println!("{}", pretty_redacted(&result)?);
+        }
         Command::Ipv6 => {
             let settings = router.ipv6()?;
             println!("{}", pretty_redacted(&settings)?);

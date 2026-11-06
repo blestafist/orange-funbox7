@@ -181,6 +181,28 @@ impl Router {
         self.client.call("Firewall", "getFirewallLevel", json!({}))
     }
 
+    pub fn firewall_ping_response(&self) -> Result<Value> {
+        self.client.call(
+            "Firewall",
+            "getRespondToPing",
+            json!({ "sourceInterface": "data" }),
+        )
+    }
+
+    pub fn set_firewall_ping_response(&self, enabled: bool) -> Result<Value> {
+        self.client.call(
+            "Firewall",
+            "setRespondToPing",
+            json!({
+                "sourceInterface": "data",
+                "service_enable": {
+                    "enableIPv4": enabled,
+                    "enableIPv6": enabled
+                }
+            }),
+        )
+    }
+
     pub fn set_firewall_level(&self, level: &str) -> Result<Value> {
         self.client
             .call("Firewall", "setFirewallLevel", json!({ "level": level }))
@@ -329,11 +351,7 @@ impl Router {
 
     pub fn firewall_details(&self) -> Result<Value> {
         let level = self.firewall_level()?;
-        let ping = self.client.call(
-            "Firewall",
-            "getRespondToPing",
-            json!({ "sourceInterface": "data" }),
-        )?;
+        let ping = self.firewall_ping_response()?;
         let custom_rules =
             self.client
                 .call("Firewall", "getCustomRule", json!({ "chain": "Custom" }))?;
@@ -345,6 +363,35 @@ impl Router {
             "custom_rules": custom_rules,
             "dmz": dmz,
         }))
+    }
+
+    pub fn dmz(&self) -> Result<Value> {
+        self.client.call("Firewall", "getDMZ", json!({}))
+    }
+
+    pub fn set_dmz(&self, destination: Ipv4Addr) -> Result<Value> {
+        validate_dmz_address(destination)?;
+        let current = self.dmz()?;
+        let no_existing_dmz =
+            current.is_null() || current.as_object().is_some_and(serde_json::Map::is_empty);
+        if !no_existing_dmz {
+            bail!("DMZ уже настроена; сначала очисти существующее правило");
+        }
+        self.client.call(
+            "Firewall",
+            "setDMZ",
+            json!({
+                "id": "webui",
+                "sourceInterface": "data",
+                "destinationIPAddress": destination.to_string(),
+                "enable": true
+            }),
+        )
+    }
+
+    pub fn clear_dmz(&self) -> Result<Value> {
+        self.client
+            .call("Firewall", "deleteDMZ", json!({ "id": "webui" }))
     }
 
     pub fn ipv6(&self) -> Result<Value> {
@@ -451,10 +498,18 @@ fn validate_lan_config(
     Ok(())
 }
 
+fn validate_dmz_address(address: Ipv4Addr) -> Result<()> {
+    if !address.is_private() {
+        bail!("DMZ разрешено направлять только на частный LAN IPv4-адрес");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        find_forward, validate_forward_name, validate_forward_protocol, validate_lan_config,
+        find_forward, validate_dmz_address, validate_forward_name, validate_forward_protocol,
+        validate_lan_config,
     };
 
     #[test]
@@ -511,5 +566,12 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    #[test]
+    fn dmz_accepts_only_private_addresses() {
+        assert!(validate_dmz_address("192.168.1.10".parse().unwrap()).is_ok());
+        assert!(validate_dmz_address("10.0.0.20".parse().unwrap()).is_ok());
+        assert!(validate_dmz_address("8.8.8.8".parse().unwrap()).is_err());
     }
 }

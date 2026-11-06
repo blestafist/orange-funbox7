@@ -44,6 +44,11 @@ cargo run -- forward-add web 192.168.1.25 443 443 --protocol tcp # создаё�
 cargo run -- forward-remove web # удаляет проброс с подтверждением
 cargo run -- upnp-forwards # динамические пробросы UPnP
 cargo run -- firewall-details # DMZ, ping и пользовательские правила
+cargo run -- firewall-ping # состояние ответа на ping
+cargo run -- firewall-ping on # включить ответ на ping, спросит подтверждение
+cargo run -- dmz # показать правило DMZ
+cargo run -- dmz-set 192.168.1.25 # направить входящий трафик на хост, спросит подтверждение
+cargo run -- dmz-clear # снять DMZ, спросит подтверждение
 cargo run -- ipv6         # параметры IPv6
 cargo run -- time         # время роутера и часовой пояс
 cargo run -- reserve AA:BB:CC:DD:EE:FF 192.168.1.25 # DHCP-резервация
