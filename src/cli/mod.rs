@@ -45,6 +45,11 @@ pub enum Command {
     },
     /// Статус Open Mode Wi-Fi
     WifiOpenMode,
+    /// Показать статус WPS или изменить его с подтверждением
+    Wps {
+        #[arg(value_enum)]
+        action: Option<WifiAction>,
+    },
     /// Состояние подключения к интернету
     Wan,
     /// Список активных DHCP-устройств

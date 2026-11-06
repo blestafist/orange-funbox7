@@ -54,6 +54,11 @@ impl Router {
         )
     }
 
+    pub fn set_wps(&self, enabled: bool) -> Result<Value> {
+        self.client
+            .call("NMC.Wifi", "setWPSEnable", json!({ "enable": enabled }))
+    }
+
     pub fn wifi_open_mode(&self) -> Result<Value> {
         let status = self
             .client

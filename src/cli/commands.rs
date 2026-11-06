@@ -497,6 +497,33 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let status = router.wifi_open_mode()?;
             println!("{}", pretty_redacted(&status)?);
         }
+        Command::Wps { action: None } => {
+            let status = router.wifi_status()?;
+            match status.get("WPSEnable") {
+                Some(value) => println!("WPS: {}", yes_no_field(Some(value))),
+                None => println!("Роутер не сообщил состояние WPS."),
+            }
+        }
+        Command::Wps {
+            action: Some(action),
+        } => {
+            let enabled = matches!(action, WifiAction::On);
+            let prompt = if enabled {
+                "Включить WPS? Подключение по PIN может ослабить защиту Wi-Fi."
+            } else {
+                "Выключить WPS и запретить подключение через WPS?"
+            };
+            if !cli.yes && !confirm_action(prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_wps(enabled)?;
+            let status = router.wifi_status()?;
+            match status.get("WPSEnable") {
+                Some(value) => println!("WPS: {}", yes_no_field(Some(value))),
+                None => println!("Команда отправлена; роутер не сообщил состояние WPS."),
+            }
+        }
         Command::Devices => {
             let devices = router.devices()?;
             show_devices(&devices, "Активных DHCP-устройств")?;
