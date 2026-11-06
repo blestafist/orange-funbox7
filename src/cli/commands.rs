@@ -1038,6 +1038,31 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let time = router.time()?;
             println!("{}", pretty_redacted(&time)?);
         }
+        Command::TimeZone { timezone: None } => {
+            let time = router.time()?;
+            println!(
+                "Часовой пояс: {}",
+                time.get("timezone").unwrap_or(&Value::Null)
+            );
+        }
+        Command::TimeZone {
+            timezone: Some(timezone),
+        } => {
+            Router::validate_timezone(timezone)?;
+            let prompt = format!(
+                "Установить часовой пояс {timezone}? Это изменит отображение времени и может повлиять на расписания."
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_timezone(timezone)?;
+            let time = router.time()?;
+            println!(
+                "Часовой пояс: {}",
+                time.get("timezone").unwrap_or(&Value::Null)
+            );
+        }
         Command::NtpServers => {
             let servers = router.ntp_servers()?;
             println!("{}", pretty_redacted(&servers)?);

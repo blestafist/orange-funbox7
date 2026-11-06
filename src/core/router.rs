@@ -784,6 +784,19 @@ impl Router {
         Ok(json!({ "time": current, "timezone": timezone }))
     }
 
+    pub fn set_timezone(&self, timezone: &str) -> Result<Value> {
+        validate_timezone(timezone)?;
+        self.client.call(
+            "Time",
+            "setLocalTimeZoneName",
+            json!({ "timezone": timezone }),
+        )
+    }
+
+    pub fn validate_timezone(timezone: &str) -> Result<()> {
+        validate_timezone(timezone)
+    }
+
     pub fn ntp_servers(&self) -> Result<Value> {
         let servers = self.client.call("Time", "getNTPServers", json!({}))?;
         Ok(sanitize_ntp_servers(&servers))
@@ -888,6 +901,23 @@ fn validate_dynamic_dns_hostname(hostname: &str) -> Result<()> {
         });
     if !valid {
         bail!("укажи корректное DNS-имя DynDNS без пробелов и завершающей точки");
+    }
+    Ok(())
+}
+
+fn validate_timezone(timezone: &str) -> Result<()> {
+    let valid = !timezone.is_empty()
+        && timezone.len() <= 64
+        && !timezone.starts_with('/')
+        && !timezone.ends_with('/')
+        && timezone
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'/' | b'_' | b'-' | b'+'))
+        && timezone
+            .split('/')
+            .all(|part| !part.is_empty() && part != "." && part != "..");
+    if !valid {
+        bail!("укажи часовой пояс без пробелов и управляющих символов, например Europe/Paris");
     }
     Ok(())
 }
@@ -1689,7 +1719,7 @@ mod tests {
         sanitize_remote_access_status, sanitize_users, sanitize_wan_stats,
         validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
-        validate_pinhole_destination, validate_pinhole_protocol,
+        validate_pinhole_destination, validate_pinhole_protocol, validate_timezone,
     };
 
     #[test]
@@ -2060,6 +2090,18 @@ mod tests {
         assert!(Router::validate_dynamic_dns_identity("NoIP", "home.example.net", "user").is_ok());
         assert!(Router::validate_dynamic_dns_identity("", "home.example.net", "user").is_err());
         assert!(Router::validate_dynamic_dns_identity("NoIP", "home.example.net", " ").is_err());
+    }
+
+    #[test]
+    fn validates_timezone_identifiers() {
+        assert!(validate_timezone("Europe/Paris").is_ok());
+        assert!(validate_timezone("UTC").is_ok());
+        assert!(validate_timezone("Etc/GMT+1").is_ok());
+        assert!(validate_timezone("").is_err());
+        assert!(validate_timezone("/Europe/Paris").is_err());
+        assert!(validate_timezone("Europe//Paris").is_err());
+        assert!(validate_timezone("Europe/../Paris").is_err());
+        assert!(validate_timezone("Europe/Paris\n").is_err());
     }
 
     #[test]
