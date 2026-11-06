@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::{
-    cli::{Cli, Command, GuestAction, WifiAction},
+    cli::{Cli, Command, DhcpAction, GuestAction, WifiAction},
     core::Router,
 };
 
@@ -417,6 +417,31 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::Lan => {
             let lan = router.lan()?;
             show_lan(&lan)?;
+        }
+        Command::LanSet {
+            address,
+            netmask,
+            dhcp_min,
+            dhcp_max,
+            dhcp,
+        } => {
+            let dhcp_enabled = matches!(dhcp, DhcpAction::On);
+            let prompt = format!(
+                "Установить LAN {address}/{netmask}, DHCP {} ({dhcp_min}–{dhcp_max})? При смене адреса соединение с роутером может оборваться.",
+                if dhcp_enabled {
+                    "включён"
+                } else {
+                    "выключен"
+                }
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_lan(*address, *netmask, dhcp_enabled, *dhcp_min, *dhcp_max)?;
+            println!(
+                "Настройки отправлены. Если LAN-адрес изменён, подключайся к роутеру по адресу http://{address}."
+            );
         }
         Command::NetworkDetails => {
             let details = router.network_details()?;

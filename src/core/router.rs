@@ -113,6 +113,28 @@ impl Router {
         self.client.call("NMC", "getLANIP", json!({}))
     }
 
+    pub fn set_lan(
+        &self,
+        address: Ipv4Addr,
+        netmask: Ipv4Addr,
+        dhcp_enabled: bool,
+        dhcp_min: Ipv4Addr,
+        dhcp_max: Ipv4Addr,
+    ) -> Result<Value> {
+        validate_lan_config(address, netmask, dhcp_min, dhcp_max)?;
+        self.client.call(
+            "NMC",
+            "setLANIP",
+            json!({
+                "Address": address.to_string(),
+                "Netmask": netmask.to_string(),
+                "DHCPEnable": dhcp_enabled,
+                "DHCPMinAddress": dhcp_min.to_string(),
+                "DHCPMaxAddress": dhcp_max.to_string()
+            }),
+        )
+    }
+
     pub fn network_details(&self) -> Result<Value> {
         let lan = self.lan()?;
         let interfaces = self.client.call(
@@ -394,9 +416,46 @@ fn field_string(value: &Value, fields: &[&str]) -> Option<String> {
     })
 }
 
+fn validate_lan_config(
+    address: Ipv4Addr,
+    netmask: Ipv4Addr,
+    dhcp_min: Ipv4Addr,
+    dhcp_max: Ipv4Addr,
+) -> Result<()> {
+    let address = u32::from(address);
+    let mask = u32::from(netmask);
+    let prefix = mask.leading_ones();
+    if !(1..=30).contains(&prefix) || mask != (u32::MAX << (32 - prefix)) {
+        bail!("маска должна быть непрерывной IPv4-маской от /1 до /30");
+    }
+
+    let network = address & mask;
+    let broadcast = network | !mask;
+    if address == network || address == broadcast {
+        bail!("LAN-адрес роутера не может быть адресом сети или broadcast");
+    }
+    let min = u32::from(dhcp_min);
+    let max = u32::from(dhcp_max);
+    if min > max {
+        bail!("начало DHCP-диапазона не может быть больше его конца");
+    }
+    if (min & mask) != network || (max & mask) != network {
+        bail!("DHCP-диапазон должен находиться в подсети LAN-адреса");
+    }
+    if min == network || max == broadcast {
+        bail!("DHCP-диапазон не должен включать адрес сети или broadcast");
+    }
+    if (min..=max).contains(&address) {
+        bail!("DHCP-диапазон не должен включать LAN-адрес самого роутера");
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{find_forward, validate_forward_name, validate_forward_protocol};
+    use super::{
+        find_forward, validate_forward_name, validate_forward_protocol, validate_lan_config,
+    };
 
     #[test]
     fn validates_forward_names_and_protocols() {
@@ -418,5 +477,39 @@ mod tests {
         assert!(find_forward(&forwards, "game").is_some());
         assert!(find_forward(&forwards, "media").is_some());
         assert!(find_forward(&forwards, "missing").is_none());
+    }
+
+    #[test]
+    fn validates_lan_and_dhcp_subnet() {
+        use std::net::Ipv4Addr;
+
+        let ip = |value: &str| value.parse::<Ipv4Addr>().unwrap();
+        assert!(
+            validate_lan_config(
+                ip("192.168.1.1"),
+                ip("255.255.255.0"),
+                ip("192.168.1.50"),
+                ip("192.168.1.200")
+            )
+            .is_ok()
+        );
+        assert!(
+            validate_lan_config(
+                ip("192.168.1.1"),
+                ip("255.255.255.0"),
+                ip("192.168.1.1"),
+                ip("192.168.1.200")
+            )
+            .is_err()
+        );
+        assert!(
+            validate_lan_config(
+                ip("192.168.1.1"),
+                ip("255.0.255.0"),
+                ip("192.168.1.50"),
+                ip("192.168.1.200")
+            )
+            .is_err()
+        );
     }
 }

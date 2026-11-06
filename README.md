@@ -28,6 +28,7 @@ cargo run -- devices      # таблица активных DHCP-устройс�
 cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP
+cargo run -- lan-set 192.168.1.1 255.255.255.0 192.168.1.50 192.168.1.200 --dhcp on # спросит подтверждение
 cargo run -- network-details # LAN-интерфейсы и радио
 cargo run -- internet-details # WAN, IPv6 и VLAN провайдера
 cargo run -- leases       # закреплённые DHCP-адреса

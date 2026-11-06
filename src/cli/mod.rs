@@ -51,6 +51,15 @@ pub enum Command {
     WifiClients,
     /// LAN-адрес и настройки DHCP
     Lan,
+    /// Изменить LAN-адрес и DHCP-диапазон (потребуется переподключение)
+    LanSet {
+        address: std::net::Ipv4Addr,
+        netmask: std::net::Ipv4Addr,
+        dhcp_min: std::net::Ipv4Addr,
+        dhcp_max: std::net::Ipv4Addr,
+        #[arg(long, value_enum)]
+        dhcp: DhcpAction,
+    },
     /// Сводные параметры LAN-интерфейсов
     NetworkDetails,
     /// WAN, IPv6 и VLAN провайдера
@@ -122,6 +131,12 @@ pub enum WifiAction {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum GuestAction {
+    On,
+    Off,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum DhcpAction {
     On,
     Off,
 }
