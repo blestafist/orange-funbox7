@@ -76,6 +76,33 @@ fn show_info(value: &Value) {
     {
         println!("Доп. версия: {version}");
     }
+    if let Some(seconds) = unsigned_field(value, &["UpTime", "Uptime"]) {
+        println!("Время работы: {}", format_uptime(seconds));
+    }
+    if let Some(reboots) = unsigned_field(value, &["NumberOfReboots"]) {
+        println!("Перезагрузок: {reboots}");
+    }
+}
+
+fn unsigned_field(value: &Value, fields: &[&str]) -> Option<u64> {
+    fields.iter().find_map(|field| {
+        value.get(*field).and_then(|value| {
+            value
+                .as_u64()
+                .or_else(|| value.as_str().and_then(|value| value.parse().ok()))
+        })
+    })
+}
+
+fn format_uptime(seconds: u64) -> String {
+    let days = seconds / 86_400;
+    let hours = (seconds % 86_400) / 3_600;
+    let minutes = (seconds % 3_600) / 60;
+    if days > 0 {
+        format!("{days} дн. {hours} ч. {minutes} мин.")
+    } else {
+        format!("{hours} ч. {minutes} мин.")
+    }
 }
 
 fn show_wifi(value: &Value) {
@@ -100,6 +127,9 @@ fn show_wifi(value: &Value) {
                 "выключено"
             }
         );
+    }
+    if let Some(wps) = value.get("WPSEnable") {
+        println!("WPS: {}", yes_no_field(Some(wps)));
     }
 }
 
@@ -769,7 +799,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{collect_device_records, normalize_mac, pretty_redacted, validate_ipv4};
+    use super::{
+        collect_device_records, format_uptime, normalize_mac, pretty_redacted, unsigned_field,
+        validate_ipv4,
+    };
 
     #[test]
     fn normalizes_mac_addresses() {
@@ -832,5 +865,13 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert_eq!(records[0]["IPAddress"], "192.168.1.20");
         assert_eq!(records[1]["IPAddress"], "192.168.1.21");
+    }
+
+    #[test]
+    fn formats_uptime_and_reads_numeric_strings() {
+        assert_eq!(format_uptime(90_061), "1 дн. 1 ч. 1 мин.");
+        assert_eq!(format_uptime(3_599), "0 ч. 59 мин.");
+        let info = serde_json::json!({ "UpTime": "7200" });
+        assert_eq!(unsigned_field(&info, &["UpTime", "Uptime"]), Some(7_200));
     }
 }

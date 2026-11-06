@@ -30,7 +30,7 @@ pub struct Cli {
 pub enum Command {
     /// Краткая сводка: модель, интернет и Wi-Fi
     Status,
-    /// Модель и версия прошивки
+    /// Модель, прошивка, время работы и число перезагрузок
     Info,
     /// Состояние световых индикаторов роутера
     Leds,
@@ -38,7 +38,7 @@ pub enum Command {
     Users,
     /// Список поддерживаемых DynDNS-провайдеров
     DdnsServices,
-    /// Статус Wi-Fi; `on` или `off` меняет его состояние
+    /// Статус Wi-Fi и WPS; `on` или `off` меняет состояние радио
     Wifi {
         #[arg(value_enum)]
         action: Option<WifiAction>,
