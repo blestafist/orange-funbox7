@@ -1,6 +1,6 @@
 use std::net::{Ipv4Addr, Ipv6Addr};
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use super::RouterClient;
@@ -19,6 +19,44 @@ impl Router {
 
     pub fn logout(&mut self) {
         self.client.logout();
+    }
+
+    pub fn dashboard_settings(&self) -> Result<Value> {
+        let settings = self.client.call(
+            "sah.Mhs",
+            "retrieveCategories",
+            json!({ "user": "admin", "option": "wm_settings" }),
+        )?;
+        sanitize_dashboard_settings(&settings)
+    }
+
+    pub fn set_dashboard_favorite(&self, tile: &str, favorite: bool) -> Result<()> {
+        validate_dashboard_tile_name(tile)?;
+        let mut settings = self.dashboard_settings()?;
+        set_dashboard_favorite_in_settings(&mut settings, tile, favorite)?;
+        let response = self.client.call(
+            "sah.Mhs",
+            "storeCategories",
+            json!({
+                "user": "admin",
+                "option": "wm_settings",
+                "data": settings
+            }),
+        )?;
+        ensure_mutation_succeeded(&response, "sah.Mhs.storeCategories")
+    }
+
+    pub fn admin_password_state(&self) -> Result<Value> {
+        let state = self.client.call(
+            "sah.Device.User",
+            "getPasswordState",
+            json!({ "user": "admin" }),
+        )?;
+        sanitize_admin_password_state(&state)
+    }
+
+    pub fn validate_dashboard_tile_name(tile: &str) -> Result<()> {
+        validate_dashboard_tile_name(tile)
     }
 
     pub fn info(&self) -> Result<Value> {
@@ -1105,6 +1143,191 @@ fn sanitize_device_summaries(value: &Value) -> Value {
     Value::Array(devices)
 }
 
+fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
+    let fields = value
+        .as_object()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат настроек dashboard"))?;
+    let version = fields
+        .get("version")
+        .and_then(Value::as_str)
+        .unwrap_or("V2");
+    if !matches!(version, "V1" | "V2") {
+        bail!("неподдерживаемая версия настроек dashboard: {version}");
+    }
+    let categories = fields
+        .get("categories")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("в настройках dashboard нет списка категорий"))?;
+
+    let mut clean_categories = serde_json::Map::new();
+    for (category, entries) in categories {
+        validate_dashboard_category_name(category)?;
+        let entries = entries
+            .as_array()
+            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+        let mut clean_entries = Vec::with_capacity(entries.len());
+        for (position, entry) in entries.iter().enumerate() {
+            let entry = entry.as_object().ok_or_else(|| {
+                anyhow!("в категории dashboard {category:?} есть запись неверного формата")
+            })?;
+            let raw_name = entry
+                .get("name")
+                .or_else(|| entry.get("manifest"))
+                .and_then(Value::as_str)
+                .ok_or_else(|| {
+                    anyhow!("в категории dashboard {category:?} есть плитка без имени")
+                })?;
+            let name = raw_name.strip_prefix("internal_").unwrap_or(raw_name);
+            validate_dashboard_tile_name(name)?;
+            let index = match entry.get("index") {
+                None => position as u64,
+                Some(Value::Number(index)) => index
+                    .as_u64()
+                    .ok_or_else(|| anyhow!("неверный индекс плитки dashboard {name:?}"))?,
+                Some(Value::String(index)) => index
+                    .parse::<u64>()
+                    .with_context(|| format!("неверный индекс плитки dashboard {name:?}"))?,
+                Some(_) => bail!("неверный индекс плитки dashboard {name:?}"),
+            };
+            let mut clean_entry = json!({
+                "name": name,
+                "index": index
+            });
+            if let Some(is_favorite) = entry.get("isFavorite") {
+                let is_favorite = is_favorite
+                    .as_bool()
+                    .ok_or_else(|| anyhow!("неверный статус избранного у плитки {name:?}"))?;
+                clean_entry["isFavorite"] = Value::Bool(is_favorite);
+            }
+            clean_entries.push(clean_entry);
+        }
+        clean_categories.insert(category.clone(), Value::Array(clean_entries));
+    }
+
+    let mut clean = serde_json::Map::new();
+    clean.insert("version".to_owned(), Value::String("V2".to_owned()));
+    clean.insert("categories".to_owned(), Value::Object(clean_categories));
+    if let Some(project) = fields.get("project").and_then(Value::as_str)
+        && project.len() <= 64
+        && project
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.'))
+    {
+        clean.insert("project".to_owned(), Value::String(project.to_owned()));
+    }
+    Ok(Value::Object(clean))
+}
+
+fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
+    let state = value
+        .get("state")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный статус пароля администратора"))?;
+    let state = match state {
+        "notSet" | "factoryDefault" => state,
+        _ => "unknown",
+    };
+    Ok(json!({ "state": state }))
+}
+
+fn set_dashboard_favorite_in_settings(
+    settings: &mut Value,
+    tile: &str,
+    favorite: bool,
+) -> Result<()> {
+    validate_dashboard_tile_name(tile)?;
+    let categories = settings
+        .get_mut("categories")
+        .and_then(Value::as_object_mut)
+        .ok_or_else(|| anyhow!("в настройках dashboard нет списка категорий"))?;
+    let mut matches = 0;
+    for (category, entries) in categories.iter_mut() {
+        if category.eq_ignore_ascii_case("Favorites") {
+            continue;
+        }
+        let entries = entries
+            .as_array_mut()
+            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+        for entry in entries {
+            if entry.get("name").and_then(Value::as_str) == Some(tile) {
+                entry["isFavorite"] = Value::Bool(favorite);
+                matches += 1;
+            }
+        }
+    }
+    if matches == 0 {
+        bail!("плитка dashboard {tile:?} не найдена");
+    }
+    if matches > 1 {
+        bail!("плитка dashboard {tile:?} встречается в нескольких категориях");
+    }
+
+    let favorites_key = categories
+        .keys()
+        .find(|key| key.eq_ignore_ascii_case("Favorites"))
+        .cloned()
+        .unwrap_or_else(|| "Favorites".to_owned());
+    let entries = categories
+        .entry(favorites_key)
+        .or_insert_with(|| Value::Array(Vec::new()))
+        .as_array_mut()
+        .ok_or_else(|| anyhow!("категория Favorites имеет неверный формат"))?;
+    if favorite {
+        if let Some(entry) = entries
+            .iter_mut()
+            .find(|entry| entry.get("name").and_then(Value::as_str) == Some(tile))
+        {
+            entry["isFavorite"] = Value::Bool(true);
+        } else {
+            let index = entries
+                .iter()
+                .filter_map(|entry| entry.get("index").and_then(Value::as_u64))
+                .max()
+                .map_or(Some(0), |index| index.checked_add(1))
+                .ok_or_else(|| anyhow!("индекс плитки Favorites переполнен"))?;
+            entries.push(json!({ "name": tile, "index": index, "isFavorite": true }));
+        }
+    } else {
+        entries.retain(|entry| entry.get("name").and_then(Value::as_str) != Some(tile));
+        entries.sort_by_key(|entry| {
+            entry
+                .get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX)
+        });
+        for (index, entry) in entries.iter_mut().enumerate() {
+            entry["index"] = json!(index);
+        }
+    }
+    Ok(())
+}
+
+fn validate_dashboard_tile_name(tile: &str) -> Result<()> {
+    if tile.is_empty()
+        || tile.len() > 64
+        || !tile
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        bail!(
+            "имя плитки dashboard должно содержать только латиницу, цифры, дефис и подчёркивание"
+        );
+    }
+    Ok(())
+}
+
+fn validate_dashboard_category_name(category: &str) -> Result<()> {
+    if category.is_empty()
+        || category.len() > 64
+        || !category
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        bail!("неизвестный формат имени категории dashboard");
+    }
+    Ok(())
+}
+
 fn sanitize_dynamic_dns_hosts(value: &Value) -> Result<Value> {
     let mut hosts = Vec::new();
     collect_dynamic_dns_hosts(value, &mut hosts);
@@ -1713,10 +1936,11 @@ mod tests {
     use super::{
         Router, ensure_mutation_succeeded, filter_blocked_schedules, find_device_by_mac,
         find_device_schedule, find_dynamic_dns_host, find_forward, find_pinhole,
-        normalize_mac_address, sanitize_backup_status, sanitize_device_schedules,
-        sanitize_device_summaries, sanitize_dynamic_dns_hosts, sanitize_enable_status,
-        sanitize_leases, sanitize_ntp_servers, sanitize_open_mode_status, sanitize_pinholes,
-        sanitize_remote_access_status, sanitize_users, sanitize_wan_stats,
+        normalize_mac_address, sanitize_admin_password_state, sanitize_backup_status,
+        sanitize_dashboard_settings, sanitize_device_schedules, sanitize_device_summaries,
+        sanitize_dynamic_dns_hosts, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
+        sanitize_open_mode_status, sanitize_pinholes, sanitize_remote_access_status,
+        sanitize_users, sanitize_wan_stats, set_dashboard_favorite_in_settings,
         validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
         validate_pinhole_destination, validate_pinhole_protocol, validate_timezone,
@@ -2102,6 +2326,107 @@ mod tests {
         assert!(validate_timezone("Europe//Paris").is_err());
         assert!(validate_timezone("Europe/../Paris").is_err());
         assert!(validate_timezone("Europe/Paris\n").is_err());
+    }
+
+    #[test]
+    fn dashboard_settings_are_allowlisted_and_favorites_toggle_safely() {
+        let raw = serde_json::json!({
+            "version": "V2",
+            "project": "funbox7",
+            "categories": {
+                "Network": [{
+                    "name": "wifiAdvanced",
+                    "index": 2,
+                    "isFavorite": false,
+                    "password": "must-not-leak"
+                }],
+                "Favorites": []
+            },
+            "accessToken": "also-must-not-leak"
+        });
+
+        let mut settings = sanitize_dashboard_settings(&raw).unwrap();
+        assert!(!settings.to_string().contains("must-not-leak"));
+        assert_eq!(settings["categories"]["Network"][0]["name"], "wifiAdvanced");
+        set_dashboard_favorite_in_settings(&mut settings, "wifiAdvanced", true).unwrap();
+        assert_eq!(settings["categories"]["Network"][0]["isFavorite"], true);
+        assert_eq!(
+            settings["categories"]["Favorites"][0]["name"],
+            "wifiAdvanced"
+        );
+        set_dashboard_favorite_in_settings(&mut settings, "wifiAdvanced", false).unwrap();
+        assert_eq!(settings["categories"]["Network"][0]["isFavorite"], false);
+        assert_eq!(
+            settings["categories"]["Favorites"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
+        assert!(set_dashboard_favorite_in_settings(&mut settings, "missing", true).is_err());
+    }
+
+    #[test]
+    fn dashboard_v1_manifest_names_are_normalized_to_v2() {
+        let raw = serde_json::json!({
+            "version": "V1",
+            "categories": {
+                "Network": [{ "manifest": "internal_wifiAdvanced" }],
+                "Favorites": []
+            }
+        });
+
+        let settings = sanitize_dashboard_settings(&raw).unwrap();
+        assert_eq!(settings["version"], "V2");
+        assert_eq!(settings["categories"]["Network"][0]["name"], "wifiAdvanced");
+        assert!(
+            settings["categories"]["Network"][0]
+                .get("isFavorite")
+                .is_none()
+        );
+        assert!(sanitize_dashboard_settings(&serde_json::json!({ "invalid": true })).is_err());
+    }
+
+    #[test]
+    fn dashboard_favorite_change_preserves_implicit_default_favorites() {
+        let raw = serde_json::json!({
+            "version": "V1",
+            "categories": {
+                "Network": [
+                    { "name": "wifiAdvanced", "index": 0, "isFavorite": false },
+                    { "name": "internetState", "index": 1 }
+                ],
+                "Favorites": []
+            }
+        });
+        let mut settings = sanitize_dashboard_settings(&raw).unwrap();
+
+        set_dashboard_favorite_in_settings(&mut settings, "wifiAdvanced", true).unwrap();
+
+        assert_eq!(settings["categories"]["Network"][0]["isFavorite"], true);
+        assert!(
+            settings["categories"]["Network"][1]
+                .get("isFavorite")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn admin_password_state_exposes_only_nonsecret_state() {
+        let status = serde_json::json!({
+            "state": "factoryDefault",
+            "password": "must-not-leak",
+            "passwordHash": "also-must-not-leak"
+        });
+        assert_eq!(
+            sanitize_admin_password_state(&status).unwrap(),
+            serde_json::json!({ "state": "factoryDefault" })
+        );
+        assert_eq!(
+            sanitize_admin_password_state(&serde_json::json!({ "state": "unexpected" })).unwrap(),
+            serde_json::json!({ "state": "unknown" })
+        );
+        assert!(sanitize_admin_password_state(&serde_json::json!({})).is_err());
     }
 
     #[test]

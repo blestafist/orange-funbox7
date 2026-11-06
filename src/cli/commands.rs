@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::{
-    cli::{Cli, Command, DhcpAction, GuestAction, WifiAction},
+    cli::{Cli, Command, DhcpAction, FavoriteAction, GuestAction, WifiAction},
     core::Router,
 };
 
@@ -407,6 +407,39 @@ fn show_dynamic_dns_hosts(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn show_dashboard_tiles(value: &Value) -> Result<()> {
+    let categories = value
+        .get("categories")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат настроек dashboard"))?;
+    let mut categories = categories.iter().collect::<Vec<_>>();
+    categories.sort_by(|left, right| left.0.cmp(right.0));
+    for (category, tiles) in categories {
+        println!("{category}:");
+        let tiles = tiles
+            .as_array()
+            .ok_or_else(|| anyhow!("категория dashboard {category:?} имеет неверный формат"))?;
+        let mut tiles = tiles.iter().collect::<Vec<_>>();
+        tiles.sort_by_key(|tile| {
+            tile.get("index")
+                .and_then(Value::as_u64)
+                .unwrap_or(u64::MAX)
+        });
+        if tiles.is_empty() {
+            println!("  (пусто)");
+        }
+        for tile in tiles {
+            let favorite = tile.get("isFavorite").and_then(Value::as_bool) == Some(true);
+            println!(
+                "  {}{}",
+                if favorite { "★ " } else { "  " },
+                string_field(tile, &["name"])
+            );
+        }
+    }
+    Ok(())
+}
+
 fn show_ipv6_pinholes(value: &Value) -> Result<()> {
     let pinholes = value
         .as_array()
@@ -729,6 +762,38 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::IotStatus => {
             let status = router.iot_status()?;
             println!("{}", pretty_redacted(&status)?);
+        }
+        Command::DashboardTiles => {
+            show_dashboard_tiles(&router.dashboard_settings()?)?;
+        }
+        Command::AdminPasswordState => {
+            let state = router.admin_password_state()?;
+            match state.get("state").and_then(Value::as_str) {
+                Some("notSet") => println!("Пароль администратора не установлен."),
+                Some("factoryDefault") => {
+                    println!("Используется пароль администратора по умолчанию.")
+                }
+                _ => println!("Роутер сообщил неизвестное состояние пароля администратора."),
+            }
+        }
+        Command::DashboardFavorite { tile, action } => {
+            Router::validate_dashboard_tile_name(tile)?;
+            let favorite = matches!(action, FavoriteAction::On);
+            let prompt = if favorite {
+                format!("Добавить плитку {tile} в избранное dashboard?")
+            } else {
+                format!("Убрать плитку {tile} из избранного dashboard?")
+            };
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_dashboard_favorite(tile, favorite)?;
+            if favorite {
+                println!("Плитка {tile} добавлена в избранное dashboard.");
+            } else {
+                println!("Плитка {tile} убрана из избранного dashboard.");
+            }
         }
         Command::Television => {
             let television = router.television()?;

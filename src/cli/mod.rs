@@ -203,6 +203,16 @@ pub enum Command {
     WifiSteering,
     /// Статус IoT-сервиса роутера
     IotStatus,
+    /// Категории, порядок плиток и избранное главного dashboard
+    DashboardTiles,
+    /// Проверить, установлен ли пароль администратора, без его вывода
+    AdminPasswordState,
+    /// Добавить или убрать плитку dashboard из избранного
+    DashboardFavorite {
+        tile: String,
+        #[arg(value_enum)]
+        action: FavoriteAction,
+    },
     /// Состояние IPTV и параметры каналов Orange TV
     Television,
     /// Конфигурация телефонии; пароли в ответе маскируются
@@ -246,6 +256,12 @@ pub enum ForwardProtocol {
 pub enum PinholeProtocol {
     Tcp,
     Udp,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum FavoriteAction {
+    On,
+    Off,
 }
 
 impl PinholeProtocol {
