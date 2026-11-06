@@ -15,6 +15,7 @@ cargo run -- status       # модель, WAN и Wi-Fi
 cargo run -- info         # модель и прошивка
 cargo run -- leds         # состояния световых индикаторов
 cargo run -- users        # пользователи панели, только безопасные поля
+cargo run -- ddns-services # список поддерживаемых DynDNS-провайдеров
 cargo run -- wan          # состояние подключения
 cargo run -- wifi         # состояние Wi-Fi
 cargo run -- wifi-open-mode # статус Open Mode без вывода SSID

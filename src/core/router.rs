@@ -34,6 +34,10 @@ impl Router {
         Ok(sanitize_users(&users))
     }
 
+    pub fn dynamic_dns_services(&self) -> Result<Value> {
+        self.client.call("DynDNS", "getServices", json!({}))
+    }
+
     pub fn wan_status(&self) -> Result<Value> {
         self.client.call("NMC", "getWANStatus", json!({}))
     }

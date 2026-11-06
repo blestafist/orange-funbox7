@@ -375,6 +375,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let users = router.users()?;
             println!("{}", pretty_redacted(&users)?);
         }
+        Command::DdnsServices => {
+            let services = router.dynamic_dns_services()?;
+            println!("{}", pretty_redacted(&services)?);
+        }
         Command::Wan => {
             let status = router.wan_status()?;
             match status.as_bool() {

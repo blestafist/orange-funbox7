@@ -36,6 +36,8 @@ pub enum Command {
     Leds,
     /// Список пользователей панели без секретных полей
     Users,
+    /// Список поддерживаемых DynDNS-провайдеров
+    DdnsServices,
     /// Статус Wi-Fi; `on` или `off` меняет его состояние
     Wifi {
         #[arg(value_enum)]
