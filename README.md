@@ -35,6 +35,8 @@ cargo run -- guest        # гостевая Wi-Fi сеть
 cargo run -- energy       # энергосбережение
 cargo run -- energy-profiles # доступные профили энергосбережения
 cargo run -- forwards     # список пробросов портов
+cargo run -- forward-add web 192.168.1.25 443 443 --protocol tcp # создаёт проброс с подтверждением
+cargo run -- forward-remove web # удаляет проброс с подтверждением
 cargo run -- upnp-forwards # динамические пробросы UPnP
 cargo run -- firewall-details # DMZ, ping и пользовательские правила
 cargo run -- ipv6         # параметры IPv6

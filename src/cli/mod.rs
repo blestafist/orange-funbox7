@@ -68,6 +68,17 @@ pub enum Command {
     Energy,
     /// Настроенные пробросы портов
     Forwards,
+    /// Создать проброс порта с подтверждением
+    ForwardAdd {
+        name: String,
+        ip: String,
+        external_port: u16,
+        internal_port: u16,
+        #[arg(long, value_enum, default_value = "tcp")]
+        protocol: ForwardProtocol,
+    },
+    /// Удалить проброс порта по имени
+    ForwardRemove { name: String },
     /// Пробросы портов, созданные UPnP
     UpnpForwards,
     /// Детали firewall: ping, DMZ и пользовательские правила
@@ -108,6 +119,31 @@ pub enum FirewallLevel {
     Medium,
     High,
     Custom,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum ForwardProtocol {
+    Tcp,
+    Udp,
+    Both,
+}
+
+impl ForwardProtocol {
+    pub(crate) fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Tcp => "6",
+            Self::Udp => "17",
+            Self::Both => "6,17",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Tcp => "TCP",
+            Self::Udp => "UDP",
+            Self::Both => "TCP+UDP",
+        }
+    }
 }
 
 impl FirewallLevel {

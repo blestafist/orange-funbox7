@@ -1,4 +1,6 @@
-use anyhow::Result;
+use std::net::Ipv4Addr;
+
+use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
 
 use super::RouterClient;
@@ -195,6 +197,79 @@ impl Router {
         )
     }
 
+    pub fn add_forward(
+        &self,
+        name: &str,
+        destination_ip: Ipv4Addr,
+        external_port: u16,
+        internal_port: u16,
+        protocol: &str,
+    ) -> Result<()> {
+        validate_forward_name(name)?;
+        validate_forward_protocol(protocol)?;
+        if external_port == 0 || internal_port == 0 {
+            bail!("номер порта должен быть в диапазоне 1–65535");
+        }
+
+        let current = self.forwards()?;
+        if find_forward(&current, name).is_some() {
+            bail!("проброс с именем {name:?} уже существует");
+        }
+
+        self.client.call(
+            "Firewall",
+            "setPortForwarding",
+            json!({
+                "description": name,
+                "persistent": true,
+                "enable": true,
+                "protocol": protocol,
+                "destinationIPAddress": destination_ip.to_string(),
+                "internalPort": internal_port.to_string(),
+                "externalPort": external_port.to_string(),
+                "origin": "webui",
+                "sourceInterface": "data",
+                "sourcePrefix": "",
+                "id": name
+            }),
+        )?;
+        self.client.call("Firewall", "commit", json!({}))?;
+        Ok(())
+    }
+
+    pub fn remove_forward(&self, name: &str) -> Result<()> {
+        validate_forward_name(name)?;
+        let current = self.forwards()?;
+        let entry = find_forward(&current, name)
+            .ok_or_else(|| anyhow!("не найден проброс портов с именем {name:?}"))?;
+        let protocol = field_string(entry, &["Protocol", "protocol"])
+            .ok_or_else(|| anyhow!("в записи проброса нет протокола"))?;
+        let internal_port = field_string(entry, &["InternalPort", "internalPort"])
+            .ok_or_else(|| anyhow!("в записи проброса нет внутреннего порта"))?;
+        let external_port = field_string(entry, &["ExternalPort", "externalPort"])
+            .ok_or_else(|| anyhow!("в записи проброса нет внешнего порта"))?;
+
+        self.client.call(
+            "Firewall",
+            "setPortForwarding",
+            json!({
+                "description": name,
+                "persistent": true,
+                "enable": false,
+                "protocol": protocol,
+                "destinationIPAddress": "0.0.0.0",
+                "internalPort": internal_port,
+                "externalPort": external_port,
+                "origin": "webui",
+                "sourceInterface": "data",
+                "sourcePrefix": "",
+                "id": name
+            }),
+        )?;
+        self.client.call("Firewall", "commit", json!({}))?;
+        Ok(())
+    }
+
     pub fn upnp_forwards(&self) -> Result<Value> {
         self.client
             .call("Firewall", "getPortForwarding", json!({ "origin": "upnp" }))
@@ -234,5 +309,84 @@ impl Router {
 
     pub fn reboot(&self) -> Result<Value> {
         self.client.call("NMC", "reboot", json!({}))
+    }
+}
+
+fn validate_forward_name(name: &str) -> Result<()> {
+    if name.is_empty()
+        || name.len() > 32
+        || !name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        bail!("имя правила: 1–32 символа, только латиница, цифры, дефис и подчёркивание");
+    }
+    Ok(())
+}
+
+fn validate_forward_protocol(protocol: &str) -> Result<()> {
+    if !matches!(protocol, "6" | "17" | "6,17") {
+        bail!("протокол должен быть TCP, UDP или both");
+    }
+    Ok(())
+}
+
+fn find_forward<'a>(forwards: &'a Value, name: &str) -> Option<&'a Value> {
+    let requested_id = format!("webui_{name}");
+    let matches_name = |entry: &&Value| {
+        ["Id", "id", "Description", "description"]
+            .iter()
+            .filter_map(|field| entry.get(*field).and_then(Value::as_str))
+            .any(|value| value == name || value == requested_id)
+    };
+
+    match forwards {
+        Value::Object(entries) => entries
+            .get(&requested_id)
+            .or_else(|| entries.values().find(matches_name)),
+        Value::Array(entries) => entries.iter().find(|entry| {
+            ["Id", "id", "Description", "description"]
+                .iter()
+                .filter_map(|field| entry.get(*field).and_then(Value::as_str))
+                .any(|value| value == name || value == requested_id)
+        }),
+        _ => None,
+    }
+}
+
+fn field_string(value: &Value, fields: &[&str]) -> Option<String> {
+    fields.iter().find_map(|field| {
+        value.get(*field).and_then(|value| match value {
+            Value::String(value) => Some(value.clone()),
+            Value::Number(value) => Some(value.to_string()),
+            _ => None,
+        })
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{find_forward, validate_forward_name, validate_forward_protocol};
+
+    #[test]
+    fn validates_forward_names_and_protocols() {
+        assert!(validate_forward_name("home-server_1").is_ok());
+        assert!(validate_forward_name("bad name").is_err());
+        assert!(validate_forward_name("..").is_err());
+        assert!(validate_forward_protocol("6").is_ok());
+        assert!(validate_forward_protocol("17").is_ok());
+        assert!(validate_forward_protocol("6,17").is_ok());
+        assert!(validate_forward_protocol("tcp").is_err());
+    }
+
+    #[test]
+    fn finds_port_forward_by_id_or_description() {
+        let forwards = serde_json::json!({
+            "webui_game": { "Id": "game", "ExternalPort": "27015" },
+            "webui_media": { "id": "media", "description": "media" }
+        });
+        assert!(find_forward(&forwards, "game").is_some());
+        assert!(find_forward(&forwards, "media").is_some());
+        assert!(find_forward(&forwards, "missing").is_none());
     }
 }

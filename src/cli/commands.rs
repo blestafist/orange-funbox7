@@ -447,6 +447,45 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let forwards = router.forwards()?;
             println!("{}", pretty_redacted(&forwards)?);
         }
+        Command::ForwardAdd {
+            name,
+            ip,
+            external_port,
+            internal_port,
+            protocol,
+        } => {
+            let destination_ip = Ipv4Addr::from_str(validate_ipv4(ip)?)?;
+            if *external_port == 0 || *internal_port == 0 {
+                bail!("номер порта должен быть в диапазоне 1–65535");
+            }
+            let protocol_value = protocol.as_api_value();
+            let prompt = format!(
+                "Открыть порт {external_port}/{} на {destination_ip}:{internal_port} с доступом из Интернета?",
+                protocol.label()
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.add_forward(
+                name,
+                destination_ip,
+                *external_port,
+                *internal_port,
+                protocol_value,
+            )?;
+            println!("Проброс порта создан и сохранён.");
+        }
+        Command::ForwardRemove { name } => {
+            let prompt =
+                format!("Удалить проброс «{name}»? Входящий доступ через это правило прекратится.");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.remove_forward(name)?;
+            println!("Правило проброса удалено.");
+        }
         Command::UpnpForwards => {
             let forwards = router.upnp_forwards()?;
             println!("{}", pretty_redacted(&forwards)?);
