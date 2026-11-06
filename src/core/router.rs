@@ -153,7 +153,33 @@ impl Router {
             "getFirstParameter",
             json!({ "name": "VLANID" }),
         )?;
-        Ok(json!({ "wan_status": wan, "ipv6": ipv6, "vlan_id": vlan_id }))
+        let mtu = self.internet_mtu()?;
+        // PPP доступен не на всех типах подключения и прошивках. Оставляем
+        // диагностику WAN/IPv6 полезной, но явно показываем ошибку PPP-вызова.
+        let ppp = match self.ppp_info() {
+            Ok(data) => json!({ "available": true, "data": data }),
+            Err(error) => json!({ "available": false, "error": error.to_string() }),
+        };
+        Ok(json!({
+            "wan_status": wan,
+            "ipv6": ipv6,
+            "vlan_id": vlan_id,
+            "mtu": mtu,
+            "ppp": ppp
+        }))
+    }
+
+    pub fn internet_mtu(&self) -> Result<Value> {
+        self.client.call(
+            "NeMo.Intf.data",
+            "getFirstParameter",
+            json!({ "name": "MTU" }),
+        )
+    }
+
+    pub fn ppp_info(&self) -> Result<Value> {
+        self.client
+            .call("NeMo.Intf.data", "getMIBs", json!({ "mibs": "ppp" }))
     }
 
     pub fn leases(&self) -> Result<Value> {

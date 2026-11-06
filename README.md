@@ -30,7 +30,7 @@ cargo run -- networks     # точки доступа и подключённы�
 cargo run -- lan          # LAN-адрес и DHCP
 cargo run -- lan-set 192.168.1.1 255.255.255.0 192.168.1.50 192.168.1.200 --dhcp on # спросит подтверждение
 cargo run -- network-details # LAN-интерфейсы и радио
-cargo run -- internet-details # WAN, IPv6 и VLAN провайдера
+cargo run -- internet-details # WAN, IPv6, VLAN, MTU и сведения PPP (если доступны)
 cargo run -- leases       # закреплённые DHCP-адреса
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение

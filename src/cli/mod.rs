@@ -62,7 +62,7 @@ pub enum Command {
     },
     /// Сводные параметры LAN-интерфейсов
     NetworkDetails,
-    /// WAN, IPv6 и VLAN провайдера
+    /// WAN, IPv6, VLAN, MTU и сведения PPP провайдера
     InternetDetails,
     /// Список закреплённых DHCP-адресов
     Leases,
