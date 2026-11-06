@@ -594,6 +594,11 @@ impl Router {
         Ok(sanitize_ntp_servers(&servers))
     }
 
+    pub fn backup_status(&self) -> Result<Value> {
+        let status = self.client.call("NMC.NetworkConfig", "get", json!({}))?;
+        Ok(sanitize_backup_status(&status))
+    }
+
     pub fn reboot(&self) -> Result<Value> {
         self.client.call("NMC", "reboot", json!({}))
     }
@@ -938,6 +943,20 @@ fn sanitize_ntp_servers(value: &Value) -> Value {
     )
 }
 
+fn sanitize_backup_status(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case("ConfigDate"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 fn sanitize_device_schedules(value: &Value) -> Value {
     let mut records = Vec::new();
     collect_device_schedules(value, &mut records);
@@ -1030,9 +1049,9 @@ mod tests {
 
     use super::{
         filter_blocked_schedules, find_device_schedule, find_forward, normalize_mac_address,
-        sanitize_device_schedules, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
-        sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
-        sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
+        sanitize_backup_status, sanitize_device_schedules, sanitize_enable_status, sanitize_leases,
+        sanitize_ntp_servers, sanitize_open_mode_status, sanitize_remote_access_status,
+        sanitize_users, sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
     };
 
@@ -1311,6 +1330,20 @@ mod tests {
         assert_eq!(
             sanitize_ntp_servers(&servers),
             serde_json::json!(["ntp.example.net", "192.0.2.10"])
+        );
+    }
+
+    #[test]
+    fn backup_status_exposes_only_last_configuration_date() {
+        let status = serde_json::json!({
+            "ConfigDate": "2026-10-31T12:00:00Z",
+            "Password": "must-not-leak",
+            "Account": "private"
+        });
+
+        assert_eq!(
+            sanitize_backup_status(&status),
+            serde_json::json!({ "ConfigDate": "2026-10-31T12:00:00Z" })
         );
     }
 }

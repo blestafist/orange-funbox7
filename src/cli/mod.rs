@@ -159,6 +159,8 @@ pub enum Command {
     Time,
     /// Список серверов синхронизации времени
     NtpServers,
+    /// Дата последней копии конфигурации у оператора
+    BackupStatus,
     /// Профили энергосбережения
     EnergyProfiles,
     /// Параметры Smart Wi-Fi / steering

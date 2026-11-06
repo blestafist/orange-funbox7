@@ -853,6 +853,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let servers = router.ntp_servers()?;
             println!("{}", pretty_redacted(&servers)?);
         }
+        Command::BackupStatus => {
+            let status = router.backup_status()?;
+            println!("{}", pretty_redacted(&status)?);
+        }
         Command::Reserve { mac, ip } => {
             let mac = normalize_mac(mac)?;
             let ip = validate_ipv4(ip)?;
