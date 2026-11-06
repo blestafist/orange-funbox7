@@ -514,6 +514,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let current = router.firewall_level()?;
             println!("Текущий уровень firewall: {current}");
         }
+        Command::FirewallIpv6 => {
+            let level = router.firewall_ipv6_level()?;
+            println!("Уровень firewall для IPv6: {level}");
+        }
         Command::Guest { action: None } => show_guest_page(router)?,
         Command::Guest {
             action: Some(action),
@@ -587,6 +591,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::UpnpForwards => {
             let forwards = router.upnp_forwards()?;
             println!("{}", pretty_redacted(&forwards)?);
+        }
+        Command::UpnpStatus => {
+            let status = router.upnp_status()?;
+            println!("{}", pretty_redacted(&status)?);
         }
         Command::FirewallDetails => {
             let details = router.firewall_details()?;

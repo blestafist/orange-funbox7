@@ -257,6 +257,16 @@ impl Router {
         self.client.call("Firewall", "getFirewallLevel", json!({}))
     }
 
+    pub fn firewall_ipv6_level(&self) -> Result<Value> {
+        self.client
+            .call("Firewall", "getFirewallIPv6Level", json!({}))
+    }
+
+    pub fn upnp_status(&self) -> Result<Value> {
+        let status = self.client.call("UPnP-IGD", "get", json!({}))?;
+        Ok(sanitize_enable_status(&status))
+    }
+
     pub fn firewall_ping_response(&self) -> Result<Value> {
         self.client.call(
             "Firewall",
@@ -694,13 +704,28 @@ fn sanitize_open_mode_status(value: &Value) -> Value {
     )
 }
 
+fn sanitize_enable_status(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(key, _)| key.eq_ignore_ascii_case("enable"))
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, sanitize_open_mode_status, sanitize_users, validate_forward_name,
-        validate_forward_protocol, validate_lan_config, validate_lan_destination,
+        find_forward, sanitize_enable_status, sanitize_open_mode_status, sanitize_users,
+        validate_forward_name, validate_forward_protocol, validate_lan_config,
+        validate_lan_destination,
     };
 
     #[test]
@@ -842,6 +867,20 @@ mod tests {
         assert_eq!(
             sanitize_open_mode_status(&status),
             serde_json::json!({ "Enable": true, "Status": false })
+        );
+    }
+
+    #[test]
+    fn upnp_status_output_contains_only_enable_flag() {
+        let status = serde_json::json!({
+            "Enable": true,
+            "Username": "not-needed",
+            "Description": "UPnP gateway"
+        });
+
+        assert_eq!(
+            sanitize_enable_status(&status),
+            serde_json::json!({ "Enable": true })
         );
     }
 }

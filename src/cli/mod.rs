@@ -81,6 +81,8 @@ pub enum Command {
         #[arg(value_enum)]
         level: Option<FirewallLevel>,
     },
+    /// Уровень фильтрации firewall для IPv6
+    FirewallIpv6,
     /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
     Guest {
         #[arg(value_enum)]
@@ -103,6 +105,8 @@ pub enum Command {
     ForwardRemove { name: String },
     /// Пробросы портов, созданные UPnP
     UpnpForwards,
+    /// Включён ли UPnP-шлюз
+    UpnpStatus,
     /// Детали firewall: ping, DMZ и пользовательские правила
     FirewallDetails,
     /// Читать или менять ответ firewall на ping из Интернета
