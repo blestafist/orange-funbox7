@@ -440,6 +440,34 @@ fn show_dashboard_tiles(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn show_power_schedules(value: &Value) -> Result<()> {
+    let schedules = value
+        .as_object()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат расписаний"))?;
+    for (profile, scheduled) in schedules {
+        let scheduled = scheduled
+            .as_bool()
+            .ok_or_else(|| anyhow!("расписание профиля {profile:?} имеет неверный формат"))?;
+        let label = match profile.as_str() {
+            "LED" => "Индикаторы",
+            "Light" => "Лёгкий режим энергосбережения",
+            "Deep" => "Глубокий режим энергосбережения",
+            "WiFi" => "Wi-Fi",
+            "WiFi5G" => "Wi-Fi 5 ГГц",
+            _ => bail!("роутер вернул неизвестный профиль расписания"),
+        };
+        println!(
+            "{label}: {}.",
+            if scheduled {
+                "расписание включено"
+            } else {
+                "расписание не включено"
+            }
+        );
+    }
+    Ok(())
+}
+
 fn show_ipv6_pinholes(value: &Value) -> Result<()> {
     let pinholes = value
         .as_array()
@@ -644,6 +672,21 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let stats = router.wan_stats()?;
             println!("{}", pretty_redacted(&stats)?);
         }
+        Command::InternetState => {
+            let state = router.internet_dashboard_state()?;
+            let available = state.get("available").and_then(Value::as_bool) == Some(true);
+            println!(
+                "Интернет-соединение: {}.",
+                if available {
+                    "доступно"
+                } else {
+                    "недоступно"
+                }
+            );
+            if let Some(link_mode) = state.get("linkMode").and_then(Value::as_str) {
+                println!("Тип подключения: {link_mode}.");
+            }
+        }
         Command::Wifi { action: None } => show_wifi(&router.wifi_status()?),
         Command::Wifi {
             action: Some(action),
@@ -729,6 +772,20 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let schedule = router.wifi_schedule()?;
             println!("{}", pretty_redacted(&schedule)?);
         }
+        Command::RepeaterSchedule => {
+            let enabled = router.repeater_schedule_state()?;
+            println!(
+                "Расписание Wi-Fi-репитера: {}.",
+                if enabled {
+                    "включено"
+                } else {
+                    "выключено"
+                }
+            );
+        }
+        Command::PowerSchedules => {
+            show_power_schedules(&router.dashboard_power_schedules()?)?;
+        }
         Command::BlockedDevices => {
             let blocked = router.blocked_devices()?;
             show_blocked_devices(&blocked)?;
@@ -762,6 +819,17 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::IotStatus => {
             let status = router.iot_status()?;
             println!("{}", pretty_redacted(&status)?);
+        }
+        Command::WifiIotStatus => {
+            let enabled = router.wifi_iot_enabled()?;
+            println!(
+                "IoT Wi-Fi: {}.",
+                if enabled {
+                    "включён"
+                } else {
+                    "выключен"
+                }
+            );
         }
         Command::DashboardTiles => {
             show_dashboard_tiles(&router.dashboard_settings()?)?;
@@ -808,9 +876,37 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let television = router.television()?;
             println!("{}", pretty_redacted(&television)?);
         }
+        Command::IptvStatus => {
+            let enabled = router.television_dashboard_state()?;
+            println!(
+                "IPTV: {}.",
+                if enabled {
+                    "доступно"
+                } else {
+                    "неактивно"
+                }
+            );
+        }
         Command::Voice => {
             let voice = router.voice()?;
             println!("{}", pretty_redacted(&voice)?);
+        }
+        Command::PhoneStatus => {
+            let status = router.voice_dashboard_status()?;
+            let enabled = status.get("lineEnabled").and_then(Value::as_bool) == Some(true);
+            let missed_calls = status
+                .get("missedCalls")
+                .and_then(Value::as_u64)
+                .unwrap_or(0);
+            println!(
+                "Телефонная линия: {}.",
+                if enabled {
+                    "включена"
+                } else {
+                    "выключена"
+                }
+            );
+            println!("Пропущенных звонков: {missed_calls}.");
         }
         Command::Lan => {
             let lan = router.lan()?;

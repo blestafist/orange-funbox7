@@ -15,6 +15,12 @@ cargo run -- status       # модель, WAN и Wi-Fi
 cargo run -- dashboard-tiles # категории, порядок плиток и избранное dashboard
 cargo run -- admin-password-state # проверить, не используется ли пароль по умолчанию
 cargo run -- language # показать язык интерфейса роутера
+cargo run -- internet-state # состояние интернет-соединения, как на плитке dashboard
+cargo run -- repeater-schedule # статус расписания Wi-Fi-репитера
+cargo run -- power-schedules # расписания LED, Wi-Fi и энергосбережения
+cargo run -- wifi-iot-status # включены ли IoT Wi-Fi-точки доступа
+cargo run -- iptv-status # статус IPTV-плитки
+cargo run -- phone-status # статус линии и число пропущенных звонков без номеров
 cargo run -- dashboard-favorite wifiAdvanced on # добавить плитку в избранное, спросит подтверждение
 cargo run -- dashboard-favorite wifiAdvanced off # убрать из избранного, спросит подтверждение
 cargo run -- info         # модель, прошивка, аптайм и число перезагрузок
@@ -112,6 +118,7 @@ cargo run -- --host 192.168.1.1 --user admin status
 
 Некоторые редкие методы (управление UPnP, IPv6 pinholes, DDNS-хосты, установка часового пояса, `firewall-ipv6`, `remote-access`, `backup-status`, управление WPS, `wan-stats`, срок DHCP-аренды и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
 Управление плитками dashboard использует вызовы из загрузчика WebUI этой прошивки, но запись настроек ещё не проверена на роутере.
+`internet-state`, `power-schedules`, `repeater-schedule`, `wifi-iot-status`, `iptv-status` и `phone-status` используют точные read-only вызовы из публичных tile-модулей WebUI Funbox 7; авторизованные runtime-вызовы на роутере пока не проверены.
 `blocked-devices` показывает только блокировку выхода в Интернет; она не изолирует устройство от других узлов локальной сети.
 `block-device` и `unblock-device` также управляют только доступом в Интернет; обе команды требуют подтверждения.
 

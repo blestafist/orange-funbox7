@@ -125,6 +125,25 @@ impl RouterClient {
     }
 
     pub fn call_data(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
+        self.call_data_with_privacy(service, method, parameters, false)
+    }
+
+    pub fn call_data_sensitive(
+        &self,
+        service: &str,
+        method: &str,
+        parameters: Value,
+    ) -> Result<Value> {
+        self.call_data_with_privacy(service, method, parameters, true)
+    }
+
+    fn call_data_with_privacy(
+        &self,
+        service: &str,
+        method: &str,
+        parameters: Value,
+        sensitive: bool,
+    ) -> Result<Value> {
         let context_id = self
             .context_id
             .as_deref()
@@ -134,9 +153,15 @@ impl RouterClient {
             "method": method,
             "parameters": parameters
         });
-        let response = self.request(&body, &format!("X-Sah {context_id}"))?;
-        check_api_errors_with_privacy(&response, &format!("{service}.{method}"), false)?;
-        successful_response_data(&response, &format!("{service}.{method}"))
+        let authorization = format!("X-Sah {context_id}");
+        let response = if sensitive {
+            self.request_sensitive(&body, &authorization)?
+        } else {
+            self.request(&body, &authorization)?
+        };
+        let operation = format!("{service}.{method}");
+        check_api_errors_with_privacy(&response, &operation, sensitive)?;
+        response_data_with_privacy(&response, &operation, sensitive)
     }
 
     fn call_with_privacy(
@@ -223,11 +248,16 @@ fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: b
     bail!("ошибка роутера при {operation}: {details}");
 }
 
-fn successful_response_data(response: &Value, operation: &str) -> Result<Value> {
+fn response_data_with_privacy(response: &Value, operation: &str, sensitive: bool) -> Result<Value> {
     let status = response
         .get("status")
         .ok_or_else(|| anyhow!("в ответе {operation} нет поля status"))?;
     if status != 0 {
+        if sensitive {
+            bail!(
+                "ошибка роутера при {operation}; подробности скрыты, ответ содержит личные данные"
+            );
+        }
         bail!("ошибка роутера при {operation}: статус {status}");
     }
     response
@@ -247,7 +277,7 @@ fn short_body(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{check_api_errors_with_privacy, successful_response_data};
+    use super::{check_api_errors_with_privacy, response_data_with_privacy};
 
     #[test]
     fn semantic_response_data_requires_success_status_and_payload() {
@@ -256,18 +286,34 @@ mod tests {
             "data": { "languageId": "pl" }
         });
         assert_eq!(
-            successful_response_data(&response, "getLanguage").unwrap(),
+            response_data_with_privacy(&response, "getLanguage", false).unwrap(),
             serde_json::json!({ "languageId": "pl" })
         );
         assert!(
-            successful_response_data(&serde_json::json!({ "status": 1 }), "getLanguage").is_err()
+            response_data_with_privacy(&serde_json::json!({ "status": 1 }), "getLanguage", false)
+                .is_err()
         );
         assert!(
-            successful_response_data(&serde_json::json!({ "data": {} }), "getLanguage").is_err()
+            response_data_with_privacy(&serde_json::json!({ "data": {} }), "getLanguage", false)
+                .is_err()
         );
         assert!(
-            successful_response_data(&serde_json::json!({ "status": 0 }), "getLanguage").is_err()
+            response_data_with_privacy(&serde_json::json!({ "status": 0 }), "getLanguage", false)
+                .is_err()
         );
+    }
+
+    #[test]
+    fn sensitive_response_status_is_not_echoed() {
+        let response = serde_json::json!({
+            "status": "phone-number-is-private",
+            "data": {}
+        });
+        let error = response_data_with_privacy(&response, "CallLog.browse", true)
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains("phone-number-is-private"));
+        assert!(error.contains("подробности скрыты"));
     }
 
     #[test]

@@ -65,6 +65,8 @@ pub enum Command {
     Wan,
     /// Счётчики переданных и принятых байт на WAN
     WanStats,
+    /// Статус интернет-соединения из dashboard
+    InternetState,
     /// Список активных DHCP-устройств
     Devices,
     /// Сводный список устройств Wi-Fi, Ethernet, USB и DECT
@@ -181,6 +183,10 @@ pub enum Command {
     WifiRadios,
     /// Расписание включения и выключения Wi-Fi
     WifiSchedule,
+    /// Статус расписания Wi-Fi-репитера
+    RepeaterSchedule,
+    /// Статус расписаний индикаторов и режимов энергосбережения
+    PowerSchedules,
     /// Устройства, которым назначена блокировка доступа в Интернет
     BlockedDevices,
     /// Запретить устройству доступ в Интернет
@@ -203,6 +209,8 @@ pub enum Command {
     WifiSteering,
     /// Статус IoT-сервиса роутера
     IotStatus,
+    /// Статус IoT Wi-Fi-точек доступа из dashboard
+    WifiIotStatus,
     /// Категории, порядок плиток и избранное главного dashboard
     DashboardTiles,
     /// Проверить, установлен ли пароль администратора, без его вывода
@@ -217,8 +225,12 @@ pub enum Command {
     },
     /// Состояние IPTV и параметры каналов Orange TV
     Television,
+    /// Статус IPTV из dashboard
+    IptvStatus,
     /// Конфигурация телефонии; пароли в ответе маскируются
     Voice,
+    /// Сводка телефонной линии и числа пропущенных звонков без деталей журнала
+    PhoneStatus,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
