@@ -366,6 +366,10 @@ impl Router {
         Ok(sanitize_remote_access_status(&status))
     }
 
+    pub fn disable_remote_access(&self) -> Result<Value> {
+        self.client.call("RemoteAccess", "disable", json!({}))
+    }
+
     pub fn upnp_status(&self) -> Result<Value> {
         let status = self.client.call("UPnP-IGD", "get", json!({}))?;
         Ok(sanitize_enable_status(&status))

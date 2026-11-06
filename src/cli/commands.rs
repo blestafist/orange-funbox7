@@ -724,6 +724,18 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let status = router.remote_access_status()?;
             println!("{}", pretty_redacted(&status)?);
         }
+        Command::RemoteAccessDisable => {
+            if !cli.yes
+                && !confirm_action(
+                    "Отключить удалённое управление роутером из Интернета? Локальный доступ сохранится.",
+                )?
+            {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.disable_remote_access()?;
+            println!("{}", pretty_redacted(&router.remote_access_status()?)?);
+        }
         Command::Guest { action: None } => show_guest_page(router)?,
         Command::Guest {
             action: Some(action),

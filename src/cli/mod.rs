@@ -101,6 +101,8 @@ pub enum Command {
     },
     /// Статус удалённого доступа к панели
     RemoteAccess,
+    /// Отключить управление роутером из Интернета
+    RemoteAccessDisable,
     /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
     Guest {
         #[arg(value_enum)]

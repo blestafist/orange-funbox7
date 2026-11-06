@@ -64,6 +64,7 @@ cargo run -- firewall-details # DMZ, ping и пользовательские п
 cargo run -- firewall-ipv6 # текущий уровень фильтрации IPv6
 cargo run -- firewall-ipv6 high # изменить уровень, спросит подтверждение
 cargo run -- remote-access # статус удалённого доступа к панели (без адресов и секретов)
+cargo run -- remote-access-disable # отключить удалённое управление, спросит подтверждение
 cargo run -- firewall-ping # состояние ответа на ping
 cargo run -- firewall-ping on # включить ответ на ping, спросит подтверждение
 cargo run -- dmz # показать правило DMZ
