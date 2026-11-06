@@ -62,6 +62,7 @@ cargo run -- upnp off  # отключить автоматическое отк�
 cargo run -- upnp on   # включить UPnP, спросит подтверждение
 cargo run -- firewall-details # DMZ, ping и пользовательские правила
 cargo run -- firewall-ipv6 # текущий уровень фильтрации IPv6
+cargo run -- firewall-ipv6 high # изменить уровень, спросит подтверждение
 cargo run -- remote-access # статус удалённого доступа к панели (без адресов и секретов)
 cargo run -- firewall-ping # состояние ответа на ping
 cargo run -- firewall-ping on # включить ответ на ping, спросит подтверждение

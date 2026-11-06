@@ -703,9 +703,22 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let current = router.firewall_level()?;
             println!("Текущий уровень firewall: {current}");
         }
-        Command::FirewallIpv6 => {
+        Command::FirewallIpv6 { level: None } => {
             let level = router.firewall_ipv6_level()?;
             println!("Уровень firewall для IPv6: {level}");
+        }
+        Command::FirewallIpv6 { level: Some(level) } => {
+            let level = level.as_api_value();
+            let prompt = format!("Установить уровень firewall для IPv6: {level}?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_firewall_ipv6_level(level)?;
+            println!(
+                "Уровень firewall для IPv6: {}",
+                router.firewall_ipv6_level()?
+            );
         }
         Command::RemoteAccess => {
             let status = router.remote_access_status()?;

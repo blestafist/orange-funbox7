@@ -353,6 +353,14 @@ impl Router {
             .call("Firewall", "getFirewallIPv6Level", json!({}))
     }
 
+    pub fn set_firewall_ipv6_level(&self, level: &str) -> Result<Value> {
+        self.client.call(
+            "Firewall",
+            "setFirewallIPv6Level",
+            json!({ "level": level }),
+        )
+    }
+
     pub fn remote_access_status(&self) -> Result<Value> {
         let status = self.client.call("RemoteAccess", "get", json!({}))?;
         Ok(sanitize_remote_access_status(&status))

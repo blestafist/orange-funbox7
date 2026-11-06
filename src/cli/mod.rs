@@ -94,8 +94,11 @@ pub enum Command {
         #[arg(value_enum)]
         level: Option<FirewallLevel>,
     },
-    /// Уровень фильтрации firewall для IPv6
-    FirewallIpv6,
+    /// Показать или задать уровень firewall для IPv6
+    FirewallIpv6 {
+        #[arg(value_enum)]
+        level: Option<FirewallLevel>,
+    },
     /// Статус удалённого доступа к панели
     RemoteAccess,
     /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
