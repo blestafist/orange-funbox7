@@ -17,6 +17,7 @@ cargo run -- wan          # состояние подключения
 cargo run -- wifi         # состояние Wi-Fi
 cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
 cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
+cargo run -- wifi-schedule # расписание Wi-Fi
 cargo run -- devices      # таблица активных DHCP-устройств
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP

@@ -371,6 +371,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let radios = router.wifi_radios()?;
             println!("{}", pretty_redacted(&radios)?);
         }
+        Command::WifiSchedule => {
+            let schedule = router.wifi_schedule()?;
+            println!("{}", pretty_redacted(&schedule)?);
+        }
         Command::Lan => {
             let lan = router.lan()?;
             show_lan(&lan)?;

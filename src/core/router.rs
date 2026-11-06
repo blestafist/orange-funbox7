@@ -61,6 +61,14 @@ impl Router {
             .call("NeMo.Intf.lan", "getMIBs", json!({ "mibs": "wlanradio" }))
     }
 
+    pub fn wifi_schedule(&self) -> Result<Value> {
+        self.client.call(
+            "Scheduler",
+            "getCompleteSchedules",
+            json!({ "type": "WLAN" }),
+        )
+    }
+
     pub fn lan(&self) -> Result<Value> {
         self.client.call("NMC", "getLANIP", json!({}))
     }
