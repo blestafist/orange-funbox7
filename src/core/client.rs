@@ -124,6 +124,29 @@ impl RouterClient {
         self.call_with_privacy(service, method, parameters, true)
     }
 
+    pub fn call_data(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
+        let context_id = self
+            .context_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("нет активной сессии"))?;
+        let body = json!({
+            "service": service,
+            "method": method,
+            "parameters": parameters
+        });
+        let response = self.request(&body, &format!("X-Sah {context_id}"))?;
+        check_api_errors_with_privacy(&response, &format!("{service}.{method}"), false)?;
+        if let Some(status) = response.get("status")
+            && status != 0
+        {
+            bail!("ошибка роутера при {service}.{method}: статус {status}");
+        }
+        response
+            .get("data")
+            .cloned()
+            .ok_or_else(|| anyhow!("в ответе {service}.{method} нет поля data"))
+    }
+
     fn call_with_privacy(
         &self,
         service: &str,

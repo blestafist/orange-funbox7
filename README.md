@@ -14,6 +14,7 @@ cargo build --release
 cargo run -- status       # модель, WAN и Wi-Fi
 cargo run -- dashboard-tiles # категории, порядок плиток и избранное dashboard
 cargo run -- admin-password-state # проверить, не используется ли пароль по умолчанию
+cargo run -- language # показать язык интерфейса роутера
 cargo run -- dashboard-favorite wifiAdvanced on # добавить плитку в избранное, спросит подтверждение
 cargo run -- dashboard-favorite wifiAdvanced off # убрать из избранного, спросит подтверждение
 cargo run -- info         # модель, прошивка, аптайм и число перезагрузок

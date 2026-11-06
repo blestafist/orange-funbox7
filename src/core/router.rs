@@ -55,6 +55,13 @@ impl Router {
         sanitize_admin_password_state(&state)
     }
 
+    pub fn interface_language(&self) -> Result<String> {
+        let language = self
+            .client
+            .call_data("sah.Device.Information", "getLanguage", json!({}))?;
+        sanitize_interface_language(&language)
+    }
+
     pub fn validate_dashboard_tile_name(tile: &str) -> Result<()> {
         validate_dashboard_tile_name(tile)
     }
@@ -1230,6 +1237,17 @@ fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
     Ok(json!({ "state": state }))
 }
 
+fn sanitize_interface_language(value: &Value) -> Result<String> {
+    let language = value
+        .get("languageId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный язык интерфейса"))?;
+    if !matches!(language, "en" | "pl") {
+        bail!("роутер сообщил неподдерживаемый код языка интерфейса");
+    }
+    Ok(language.to_owned())
+}
+
 fn set_dashboard_favorite_in_settings(
     settings: &mut Value,
     tile: &str,
@@ -1938,12 +1956,13 @@ mod tests {
         find_device_schedule, find_dynamic_dns_host, find_forward, find_pinhole,
         normalize_mac_address, sanitize_admin_password_state, sanitize_backup_status,
         sanitize_dashboard_settings, sanitize_device_schedules, sanitize_device_summaries,
-        sanitize_dynamic_dns_hosts, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
-        sanitize_open_mode_status, sanitize_pinholes, sanitize_remote_access_status,
-        sanitize_users, sanitize_wan_stats, set_dashboard_favorite_in_settings,
-        validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
-        validate_forward_protocol, validate_lan_config, validate_lan_destination,
-        validate_pinhole_destination, validate_pinhole_protocol, validate_timezone,
+        sanitize_dynamic_dns_hosts, sanitize_enable_status, sanitize_interface_language,
+        sanitize_leases, sanitize_ntp_servers, sanitize_open_mode_status, sanitize_pinholes,
+        sanitize_remote_access_status, sanitize_users, sanitize_wan_stats,
+        set_dashboard_favorite_in_settings, validate_dhcp_lease_time,
+        validate_dynamic_dns_hostname, validate_forward_name, validate_forward_protocol,
+        validate_lan_config, validate_lan_destination, validate_pinhole_destination,
+        validate_pinhole_protocol, validate_timezone,
     };
 
     #[test]
@@ -2427,6 +2446,16 @@ mod tests {
             serde_json::json!({ "state": "unknown" })
         );
         assert!(sanitize_admin_password_state(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn interface_language_is_validated_against_firmware_languages() {
+        assert_eq!(
+            sanitize_interface_language(&serde_json::json!({ "languageId": "pl" })).unwrap(),
+            "pl"
+        );
+        assert!(sanitize_interface_language(&serde_json::json!({ "languageId": "fr" })).is_err());
+        assert!(sanitize_interface_language(&serde_json::json!({})).is_err());
     }
 
     #[test]

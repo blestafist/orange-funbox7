@@ -207,6 +207,8 @@ pub enum Command {
     DashboardTiles,
     /// Проверить, установлен ли пароль администратора, без его вывода
     AdminPasswordState,
+    /// Показать язык интерфейса, заданный в роутере
+    Language,
     /// Добавить или убрать плитку dashboard из избранного
     DashboardFavorite {
         tile: String,

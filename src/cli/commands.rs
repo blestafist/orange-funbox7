@@ -776,6 +776,15 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
                 _ => println!("Роутер сообщил неизвестное состояние пароля администратора."),
             }
         }
+        Command::Language => {
+            let language = router.interface_language()?;
+            let name = match language.as_str() {
+                "en" => "английский",
+                "pl" => "польский",
+                _ => unreachable!("language code is validated by Router"),
+            };
+            println!("Язык интерфейса роутера: {name} ({language}).");
+        }
         Command::DashboardFavorite { tile, action } => {
             Router::validate_dashboard_tile_name(tile)?;
             let favorite = matches!(action, FavoriteAction::On);
