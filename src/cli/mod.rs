@@ -45,8 +45,16 @@ pub enum Command {
     DeviceHistory,
     /// SSID, состояние точек доступа и подключённые Wi-Fi-клиенты
     Networks,
+    /// Расширенная конфигурация Wi-Fi (ключи скрыты)
+    WifiConfig,
+    /// Список активных Wi-Fi-клиентов через Devices API
+    WifiClients,
     /// LAN-адрес и настройки DHCP
     Lan,
+    /// Сводные параметры LAN-интерфейсов
+    NetworkDetails,
+    /// WAN, IPv6 и VLAN провайдера
+    InternetDetails,
     /// Список закреплённых DHCP-адресов
     Leases,
     /// Текущий уровень firewall или задать новый
@@ -84,6 +92,8 @@ pub enum Command {
     EnergyProfiles,
     /// Параметры Smart Wi-Fi / steering
     WifiSteering,
+    /// Статус IoT-сервиса роутера
+    IotStatus,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]

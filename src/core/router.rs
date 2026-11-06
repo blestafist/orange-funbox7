@@ -64,6 +64,22 @@ impl Router {
             .call("NeMo.Intf.lan", "getMIBs", json!({ "mibs": "wlanvap" }))
     }
 
+    pub fn wifi_config(&self) -> Result<Value> {
+        self.client.call(
+            "NeMo.Intf.lan",
+            "getMIBs",
+            json!({ "mibs": "wlanvap base" }),
+        )
+    }
+
+    pub fn wifi_clients(&self) -> Result<Value> {
+        self.client.call(
+            "Devices",
+            "find",
+            json!({ "expression": "wifi and .Active==true and mac" }),
+        )
+    }
+
     pub fn wifi_stats(&self) -> Result<Value> {
         self.client.call("NMC.Wifi", "getStats", json!({}))
     }
@@ -93,6 +109,27 @@ impl Router {
 
     pub fn lan(&self) -> Result<Value> {
         self.client.call("NMC", "getLANIP", json!({}))
+    }
+
+    pub fn network_details(&self) -> Result<Value> {
+        let lan = self.lan()?;
+        let interfaces = self.client.call(
+            "NeMo.Intf.lan",
+            "getMIBs",
+            json!({ "mibs": "base wlanradio" }),
+        )?;
+        Ok(json!({ "lan": lan, "interfaces": interfaces }))
+    }
+
+    pub fn internet_details(&self) -> Result<Value> {
+        let wan = self.wan_status()?;
+        let ipv6 = self.ipv6()?;
+        let vlan_id = self.client.call(
+            "NeMo.Intf.data",
+            "getFirstParameter",
+            json!({ "name": "VLANID" }),
+        )?;
+        Ok(json!({ "wan_status": wan, "ipv6": ipv6, "vlan_id": vlan_id }))
     }
 
     pub fn leases(&self) -> Result<Value> {
@@ -144,6 +181,10 @@ impl Router {
     pub fn energy_profiles(&self) -> Result<Value> {
         self.client
             .call("PowerManagement", "getProfiles", json!({}))
+    }
+
+    pub fn iot_status(&self) -> Result<Value> {
+        self.client.call("IoTService", "getStatus", json!({}))
     }
 
     pub fn forwards(&self) -> Result<Value> {

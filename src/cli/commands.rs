@@ -369,6 +369,14 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let networks = router.networks()?;
             show_networks(&networks)?;
         }
+        Command::WifiConfig => {
+            let config = router.wifi_config()?;
+            println!("{}", pretty_redacted(&config)?);
+        }
+        Command::WifiClients => {
+            let clients = router.wifi_clients()?;
+            println!("{}", pretty_redacted(&clients)?);
+        }
         Command::WifiStats => {
             let stats = router.wifi_stats()?;
             println!("{}", pretty_redacted(&stats)?);
@@ -385,9 +393,21 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let steering = router.wifi_steering()?;
             println!("{}", pretty_redacted(&steering)?);
         }
+        Command::IotStatus => {
+            let status = router.iot_status()?;
+            println!("{}", pretty_redacted(&status)?);
+        }
         Command::Lan => {
             let lan = router.lan()?;
             show_lan(&lan)?;
+        }
+        Command::NetworkDetails => {
+            let details = router.network_details()?;
+            println!("{}", pretty_redacted(&details)?);
+        }
+        Command::InternetDetails => {
+            let details = router.internet_details()?;
+            println!("{}", pretty_redacted(&details)?);
         }
         Command::Leases => {
             let leases = router.leases()?;

@@ -15,14 +15,19 @@ cargo run -- status       # модель, WAN и Wi-Fi
 cargo run -- info         # модель и прошивка
 cargo run -- wan          # состояние подключения
 cargo run -- wifi         # состояние Wi-Fi
+cargo run -- wifi-config  # расширенные параметры точек доступа (секреты скрыты)
+cargo run -- wifi-clients # активные Wi-Fi-клиенты
 cargo run -- wifi-radios  # диапазоны, радиомодули и каналы
 cargo run -- wifi-stats   # байты приёма/передачи Wi-Fi
 cargo run -- wifi-schedule # расписание Wi-Fi
 cargo run -- wifi-steering # настройки Smart Wi-Fi
+cargo run -- iot-status    # состояние IoT-сервиса
 cargo run -- devices      # таблица активных DHCP-устройств
 cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP
+cargo run -- network-details # LAN-интерфейсы и радио
+cargo run -- internet-details # WAN, IPv6 и VLAN провайдера
 cargo run -- leases       # закреплённые DHCP-адреса
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
