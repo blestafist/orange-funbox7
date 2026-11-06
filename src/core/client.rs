@@ -45,6 +45,19 @@ impl RouterClient {
     }
 
     fn request(&self, body: &Value, authorization: &str) -> Result<Value> {
+        self.request_with_privacy(body, authorization, false)
+    }
+
+    fn request_sensitive(&self, body: &Value, authorization: &str) -> Result<Value> {
+        self.request_with_privacy(body, authorization, true)
+    }
+
+    fn request_with_privacy(
+        &self,
+        body: &Value,
+        authorization: &str,
+        sensitive: bool,
+    ) -> Result<Value> {
         let response = self
             .http
             .post(&self.endpoint)
@@ -61,11 +74,22 @@ impl RouterClient {
             .text()
             .context("не удалось прочитать ответ роутера")?;
         if !status.is_success() {
+            if sensitive {
+                bail!(
+                    "роутер вернул HTTP {status}; тело ответа скрыто, запрос содержит учётные данные"
+                );
+            }
             bail!("роутер вернул HTTP {status}: {}", short_body(&text));
         }
 
-        serde_json::from_str(&text)
-            .with_context(|| format!("роутер вернул не-JSON ответ: {}", short_body(&text)))
+        serde_json::from_str(&text).with_context(|| {
+            if sensitive {
+                "роутер вернул не-JSON ответ; содержимое скрыто, запрос содержит учётные данные"
+                    .to_owned()
+            } else {
+                format!("роутер вернул не-JSON ответ: {}", short_body(&text))
+            }
+        })
     }
 
     pub fn login(host: &str, username: &str, password: &str) -> Result<Self> {
@@ -79,8 +103,8 @@ impl RouterClient {
                 "password": password
             }
         });
-        let response = client.request(&body, "X-Sah-Login")?;
-        check_api_errors(&response, "вход")?;
+        let response = client.request_sensitive(&body, "X-Sah-Login")?;
+        check_api_errors_with_privacy(&response, "вход", true)?;
 
         let context_id = response
             .get("data")
@@ -93,6 +117,20 @@ impl RouterClient {
     }
 
     pub fn call(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
+        self.call_with_privacy(service, method, parameters, false)
+    }
+
+    pub fn call_sensitive(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
+        self.call_with_privacy(service, method, parameters, true)
+    }
+
+    fn call_with_privacy(
+        &self,
+        service: &str,
+        method: &str,
+        parameters: Value,
+        sensitive: bool,
+    ) -> Result<Value> {
         let context_id = self
             .context_id
             .as_deref()
@@ -103,8 +141,12 @@ impl RouterClient {
             "parameters": parameters
         });
         let authorization = format!("X-Sah {context_id}");
-        let response = self.request(&body, &authorization)?;
-        check_api_errors(&response, &format!("{service}.{method}"))?;
+        let response = if sensitive {
+            self.request_sensitive(&body, &authorization)?
+        } else {
+            self.request(&body, &authorization)?
+        };
+        check_api_errors_with_privacy(&response, &format!("{service}.{method}"), sensitive)?;
         if let Some(status) = response.get("status").filter(|value| !value.is_null()) {
             return Ok(status.clone());
         }
@@ -132,12 +174,16 @@ impl RouterClient {
     }
 }
 
-fn check_api_errors(response: &Value, operation: &str) -> Result<()> {
+fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: bool) -> Result<()> {
     let Some(errors) = response.get("errors").and_then(Value::as_array) else {
         return Ok(());
     };
     if errors.is_empty() {
         return Ok(());
+    }
+
+    if sensitive {
+        bail!("ошибка роутера при {operation}; подробности скрыты, запрос содержит учётные данные");
     }
 
     let details = errors
@@ -169,4 +215,37 @@ fn short_body(body: &str) -> String {
         result.push('…');
     }
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::check_api_errors_with_privacy;
+
+    #[test]
+    fn sensitive_api_errors_do_not_echo_provider_credentials() {
+        let response = serde_json::json!({
+            "errors": [{
+                "description": "invalid credentials",
+                "info": "password=provider-secret"
+            }]
+        });
+
+        let error = check_api_errors_with_privacy(&response, "DynDNS.addHost", true)
+            .unwrap_err()
+            .to_string();
+        assert!(!error.contains("provider-secret"));
+        assert!(error.contains("подробности скрыты"));
+    }
+
+    #[test]
+    fn ordinary_api_errors_retain_diagnostic_details() {
+        let response = serde_json::json!({
+            "errors": [{ "description": "denied", "info": "policy" }]
+        });
+
+        let error = check_api_errors_with_privacy(&response, "Firewall.get", false)
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("denied (policy)"));
+    }
 }

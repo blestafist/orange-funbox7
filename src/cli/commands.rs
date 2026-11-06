@@ -379,6 +379,62 @@ fn show_blocked_devices(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn show_dynamic_dns_hosts(value: &Value) -> Result<()> {
+    let hosts = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DynDNS-хостов"))?;
+    if hosts.is_empty() {
+        println!("DynDNS-хосты не настроены.");
+        return Ok(());
+    }
+
+    println!("{:<40} {:<24} СТАТУС", "ХОСТ", "ПРОВАЙДЕР");
+    println!("{}", "─".repeat(76));
+    for host in hosts {
+        let status = host
+            .get("enable")
+            .or_else(|| host.get("Enable"))
+            .map(|value| yes_no_field(Some(value)).to_owned())
+            .unwrap_or_else(|| string_field(host, &["status", "Status"]).to_owned());
+        println!(
+            "{:<40} {:<24} {}",
+            string_field(host, &["hostname", "HostName", "Hostname"]),
+            string_field(host, &["service", "Service"]),
+            status
+        );
+    }
+    println!("\nВсего DynDNS-хостов: {}", hosts.len());
+    Ok(())
+}
+
+fn show_ipv6_pinholes(value: &Value) -> Result<()> {
+    let pinholes = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат IPv6-правил"))?;
+    if pinholes.is_empty() {
+        println!("Правил входящего доступа IPv6 нет.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<24} {:<40} {:<8} {:<8} ВКЛЮЧЕНО",
+        "ИМЯ", "АДРЕС", "ПОРТ", "ПРОТОКОЛ"
+    );
+    println!("{}", "─".repeat(90));
+    for pinhole in pinholes {
+        println!(
+            "{:<24} {:<40} {:<8} {:<8} {}",
+            string_field(pinhole, &["id", "Id", "ID", "description", "Description"]),
+            string_field(pinhole, &["destinationIPAddress", "DestinationIPAddress"]),
+            string_field(pinhole, &["destinationPort", "DestinationPort"]),
+            string_field(pinhole, &["protocol", "Protocol"]),
+            yes_no_field(pinhole.get("enable").or_else(|| pinhole.get("Enable")))
+        );
+    }
+    println!("\nВсего правил: {}", pinholes.len());
+    Ok(())
+}
+
 fn yes_no_field(value: Option<&Value>) -> &'static str {
     match value {
         Some(Value::Bool(true)) => "да",
@@ -511,6 +567,37 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::DdnsServices => {
             let services = router.dynamic_dns_services()?;
             println!("{}", pretty_redacted(&services)?);
+        }
+        Command::DdnsHosts => {
+            show_dynamic_dns_hosts(&router.dynamic_dns_hosts()?)?;
+        }
+        Command::DdnsAdd {
+            service,
+            hostname,
+            username,
+        } => {
+            Router::validate_dynamic_dns_identity(service, hostname, username)?;
+            let prompt = format!(
+                "Добавить DynDNS-хост {hostname} через {service}? Провайдерские учётные данные будут сохранены на роутере."
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            let password = rpassword::prompt_password("Пароль DynDNS (ввод скрыт): ")
+                .context("не удалось прочитать пароль DynDNS")?;
+            router.add_dynamic_dns_host(service, hostname, username, &password)?;
+            drop(password);
+            println!("DynDNS-хост добавлен.");
+        }
+        Command::DdnsRemove { hostname } => {
+            let prompt = format!("Удалить DynDNS-хост {hostname}?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.remove_dynamic_dns_host(hostname)?;
+            println!("DynDNS-хост удалён.");
         }
         Command::Wan => {
             let status = router.wan_status()?;
@@ -906,6 +993,42 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             }
             let result = router.clear_dmz()?;
             println!("{}", pretty_redacted(&result)?);
+        }
+        Command::Ipv6Pinholes => {
+            show_ipv6_pinholes(&router.ipv6_pinholes()?)?;
+        }
+        Command::Ipv6PinholeAdd {
+            name,
+            destination,
+            mac,
+            port,
+            protocol,
+        } => {
+            let mac = normalize_mac(mac)?;
+            let protocol_value = protocol.as_api_value();
+            Router::validate_ipv6_pinhole(name, *destination, &mac, *port, protocol_value)?;
+            let prompt = format!(
+                "Открыть входящий IPv6-порт {port}/{} для {destination} (MAC {mac}) из Интернета?",
+                protocol.label()
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.add_ipv6_pinhole(name, *destination, &mac, *port, protocol_value)?;
+            println!("IPv6-правило создано и сохранено.");
+        }
+        Command::Ipv6PinholeRemove { name } => {
+            Router::validate_ipv6_pinhole_identifier(name)?;
+            let prompt = format!(
+                "Удалить IPv6-правило «{name}»? Входящие соединения через него прекратятся."
+            );
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.remove_ipv6_pinhole(name)?;
+            println!("IPv6-правило удалено.");
         }
         Command::Ipv6 => {
             let settings = router.ipv6()?;

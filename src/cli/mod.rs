@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand, ValueEnum};
+use std::net::Ipv6Addr;
 
 mod commands;
 
@@ -38,6 +39,16 @@ pub enum Command {
     Users,
     /// Список поддерживаемых DynDNS-провайдеров
     DdnsServices,
+    /// Список DynDNS-хостов (пароли и имена пользователей не выводятся)
+    DdnsHosts,
+    /// Добавить DynDNS-хост; пароль запрашивается скрытым вводом
+    DdnsAdd {
+        service: String,
+        hostname: String,
+        username: String,
+    },
+    /// Удалить DynDNS-хост
+    DdnsRemove { hostname: String },
     /// Статус Wi-Fi и WPS; `on` или `off` меняет состояние радио
     Wifi {
         #[arg(value_enum)]
@@ -145,6 +156,19 @@ pub enum Command {
     DmzSet { destination: std::net::Ipv4Addr },
     /// Удалить правило DMZ
     DmzClear,
+    /// Список правил входящего доступа IPv6
+    Ipv6Pinholes,
+    /// Открыть порт извне на IPv6-устройстве (потребуется подтверждение)
+    Ipv6PinholeAdd {
+        name: String,
+        destination: Ipv6Addr,
+        mac: String,
+        port: u16,
+        #[arg(long, value_enum, default_value = "tcp")]
+        protocol: PinholeProtocol,
+    },
+    /// Удалить правило входящего доступа IPv6 по имени
+    Ipv6PinholeRemove { name: String },
     /// Добавить DHCP-резервацию для MAC и IPv4
     Reserve { mac: String, ip: String },
     /// Удалить DHCP-резервацию по MAC
@@ -214,6 +238,28 @@ pub enum ForwardProtocol {
     Tcp,
     Udp,
     Both,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum PinholeProtocol {
+    Tcp,
+    Udp,
+}
+
+impl PinholeProtocol {
+    pub(crate) fn as_api_value(self) -> &'static str {
+        match self {
+            Self::Tcp => "6",
+            Self::Udp => "17",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Tcp => "TCP",
+            Self::Udp => "UDP",
+        }
+    }
 }
 
 impl ForwardProtocol {

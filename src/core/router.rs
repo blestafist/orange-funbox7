@@ -1,4 +1,4 @@
-use std::net::Ipv4Addr;
+use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
@@ -36,6 +36,82 @@ impl Router {
 
     pub fn dynamic_dns_services(&self) -> Result<Value> {
         self.client.call("DynDNS", "getServices", json!({}))
+    }
+
+    pub fn dynamic_dns_hosts(&self) -> Result<Value> {
+        let hosts = self.client.call("DynDNS", "getHosts", json!({}))?;
+        sanitize_dynamic_dns_hosts(&hosts)
+    }
+
+    pub fn add_dynamic_dns_host(
+        &self,
+        service: &str,
+        hostname: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        Self::validate_dynamic_dns_config(service, hostname, username, password)?;
+        if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_some() {
+            bail!("DynDNS-хост {hostname:?} уже настроен");
+        }
+        let response = self.client.call_sensitive(
+            "DynDNS",
+            "addHost",
+            json!({
+                "service": service,
+                "hostname": hostname,
+                "username": username,
+                "password": password
+            }),
+        )?;
+        ensure_mutation_succeeded(&response, "DynDNS.addHost")
+    }
+
+    pub fn remove_dynamic_dns_host(&self, hostname: &str) -> Result<()> {
+        validate_dynamic_dns_hostname(hostname)?;
+        if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_none() {
+            bail!("DynDNS-хост {hostname:?} не найден");
+        }
+        let response = self
+            .client
+            .call("DynDNS", "delHost", json!({ "hostname": hostname }))?;
+        ensure_mutation_succeeded(&response, "DynDNS.delHost")
+    }
+
+    pub fn validate_dynamic_dns_config(
+        service: &str,
+        hostname: &str,
+        username: &str,
+        password: &str,
+    ) -> Result<()> {
+        Self::validate_dynamic_dns_identity(service, hostname, username)?;
+        if password.is_empty() || password.len() > 1024 {
+            bail!("пароль DynDNS не должен быть пустым или длиннее 1024 байт");
+        }
+        Ok(())
+    }
+
+    pub fn validate_dynamic_dns_identity(
+        service: &str,
+        hostname: &str,
+        username: &str,
+    ) -> Result<()> {
+        if service.is_empty()
+            || service.len() > 64
+            || !service
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+        {
+            bail!("укажи корректный идентификатор DynDNS-провайдера");
+        }
+        validate_dynamic_dns_hostname(hostname)?;
+        if username.trim().is_empty() || username.len() > 256 {
+            bail!("имя пользователя DynDNS не должно быть пустым или длиннее 256 байт");
+        }
+        if username.chars().any(char::is_control) {
+            bail!("имя пользователя DynDNS не должно содержать управляющие символы");
+        }
+        Ok(())
     }
 
     pub fn wan_status(&self) -> Result<Value> {
@@ -560,6 +636,97 @@ impl Router {
             .call("Firewall", "getPortForwarding", json!({ "origin": "upnp" }))
     }
 
+    pub fn ipv6_pinholes(&self) -> Result<Value> {
+        let pinholes = self.client.call("Firewall", "getPinhole", json!({}))?;
+        sanitize_pinholes(&pinholes)
+    }
+
+    pub fn add_ipv6_pinhole(
+        &self,
+        name: &str,
+        destination: Ipv6Addr,
+        mac: &str,
+        port: u16,
+        protocol: &str,
+    ) -> Result<()> {
+        Self::validate_ipv6_pinhole(name, destination, mac, port, protocol)?;
+        let mac = normalize_mac_address(mac)?;
+
+        let existing = self.ipv6_pinholes()?;
+        if find_pinhole(&existing, name)?.is_some() {
+            bail!("IPv6-правило с именем {name:?} уже существует");
+        }
+
+        let response = self.client.call(
+            "Firewall",
+            "setPinhole",
+            json!({
+                "id": name,
+                "origin": "webui",
+                "sourceInterface": "data",
+                "sourcePort": "",
+                "destinationPort": port.to_string(),
+                "destinationIPAddress": destination.to_string(),
+                "destinationMACAddress": mac,
+                "sourcePrefix": "",
+                "protocol": protocol,
+                "ipversion": 6,
+                "enable": true,
+                "persistent": true
+            }),
+        )?;
+        ensure_mutation_succeeded(&response, "Firewall.setPinhole")?;
+        let response = self.client.call("Firewall", "commit", json!({}))?;
+        ensure_mutation_succeeded(&response, "Firewall.commit")?;
+        Ok(())
+    }
+
+    pub fn validate_ipv6_pinhole(
+        name: &str,
+        destination: Ipv6Addr,
+        mac: &str,
+        port: u16,
+        protocol: &str,
+    ) -> Result<()> {
+        validate_forward_name(name)?;
+        validate_pinhole_destination(destination)?;
+        normalize_mac_address(mac)?;
+        validate_pinhole_protocol(protocol)?;
+        if port == 0 {
+            bail!("порт должен быть в диапазоне 1–65535");
+        }
+        Ok(())
+    }
+
+    pub fn remove_ipv6_pinhole(&self, name: &str) -> Result<()> {
+        Self::validate_ipv6_pinhole_identifier(name)?;
+        let pinholes = self.ipv6_pinholes()?;
+        let entry = find_pinhole(&pinholes, name)?
+            .ok_or_else(|| anyhow!("не найдено IPv6-правило с именем {name:?}"))?;
+        let id = field_string(entry, &["id", "Id", "ID"])
+            .ok_or_else(|| anyhow!("у IPv6-правила нет идентификатора"))?;
+        let response = self
+            .client
+            .call("Firewall", "deletePinhole", json!({ "id": id }))?;
+        ensure_mutation_succeeded(&response, "Firewall.deletePinhole")?;
+        let response = self.client.call("Firewall", "commit", json!({}))?;
+        ensure_mutation_succeeded(&response, "Firewall.commit")?;
+        Ok(())
+    }
+
+    pub fn validate_ipv6_pinhole_identifier(name: &str) -> Result<()> {
+        if name.is_empty()
+            || name.len() > 256
+            || name.trim() != name
+            || name.chars().any(char::is_control)
+        {
+            bail!(
+                "имя или ID IPv6-правила должно быть длиной 1–256 символов без управляющих символов"
+            );
+        }
+        Ok(())
+    }
+
     pub fn firewall_details(&self) -> Result<Value> {
         let level = self.firewall_level()?;
         let ping = self.firewall_ping_response()?;
@@ -654,6 +821,73 @@ fn validate_forward_protocol(protocol: &str) -> Result<()> {
 fn validate_dhcp_lease_time(seconds: u32) -> Result<()> {
     if !(60..=31_536_000).contains(&seconds) {
         bail!("срок DHCP-аренды должен быть от 60 секунд до 365 дней");
+    }
+    Ok(())
+}
+
+fn validate_pinhole_destination(destination: Ipv6Addr) -> Result<()> {
+    if destination.is_unspecified()
+        || destination.is_loopback()
+        || destination.is_multicast()
+        || destination.is_unicast_link_local()
+        || destination.to_ipv4_mapped().is_some()
+    {
+        bail!("для IPv6 pinhole нужен назначаемый unicast IPv6-адрес LAN-устройства");
+    }
+    Ok(())
+}
+
+fn validate_pinhole_protocol(protocol: &str) -> Result<()> {
+    if !matches!(protocol, "6" | "17") {
+        bail!("IPv6 pinhole поддерживает только TCP или UDP");
+    }
+    Ok(())
+}
+
+fn ensure_mutation_succeeded(value: &Value, operation: &str) -> Result<()> {
+    let is_failure = |value: &Value| match value {
+        Value::Bool(false) => true,
+        Value::String(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "false" | "error" | "failed" | "failure"
+        ),
+        _ => false,
+    };
+    let rejected = is_failure(value)
+        || value.as_object().is_some_and(|fields| {
+            fields.iter().any(|(key, value)| {
+                (key.eq_ignore_ascii_case("status") || key.eq_ignore_ascii_case("success"))
+                    && is_failure(value)
+            })
+        });
+    if rejected {
+        bail!("роутер не подтвердил операцию {operation}");
+    }
+    Ok(())
+}
+
+fn validate_dynamic_dns_hostname(hostname: &str) -> Result<()> {
+    let valid = !hostname.is_empty()
+        && hostname.len() <= 253
+        && hostname.trim() == hostname
+        && hostname.split('.').count() >= 2
+        && hostname.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .as_bytes()
+                    .last()
+                    .is_some_and(u8::is_ascii_alphanumeric)
+                && label
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        });
+    if !valid {
+        bail!("укажи корректное DNS-имя DynDNS без пробелов и завершающей точки");
     }
     Ok(())
 }
@@ -841,6 +1075,286 @@ fn sanitize_device_summaries(value: &Value) -> Value {
     Value::Array(devices)
 }
 
+fn sanitize_dynamic_dns_hosts(value: &Value) -> Result<Value> {
+    let mut hosts = Vec::new();
+    collect_dynamic_dns_hosts(value, &mut hosts);
+    if has_unrecognized_dynamic_dns_entry(value, false) {
+        bail!("в DynDNS-ответе есть нераспознанные записи; список не выведен и изменение отменено");
+    }
+    if hosts.is_empty()
+        && !is_empty_supported_collection(
+            value,
+            &["hosts", "host", "entries"],
+            &["status", "count", "total", "data", "result"],
+        )
+    {
+        bail!("роутер вернул неизвестный формат DynDNS-хостов; содержимое не выведено");
+    }
+    Ok(Value::Array(hosts))
+}
+
+fn collect_dynamic_dns_hosts(value: &Value, hosts: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_dynamic_dns_hosts(entry, hosts);
+            }
+        }
+        Value::Object(fields)
+            if fields.iter().any(|(key, value)| {
+                key.eq_ignore_ascii_case("hostname") && value.as_str().is_some()
+            }) =>
+        {
+            hosts.push(Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| {
+                        ["hostname", "service", "status", "enable"]
+                            .iter()
+                            .any(|allowed| key.eq_ignore_ascii_case(allowed))
+                    })
+                    .filter(|(_, value)| !matches!(value, Value::Array(_) | Value::Object(_)))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ));
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_dynamic_dns_hosts(entry, hosts);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn find_dynamic_dns_host<'a>(hosts: &'a Value, hostname: &str) -> Option<&'a Value> {
+    hosts.as_array()?.iter().find(|host| {
+        field_string_case_insensitive(host, &["hostname"])
+            .is_some_and(|current| current.eq_ignore_ascii_case(hostname))
+    })
+}
+
+fn sanitize_pinholes(value: &Value) -> Result<Value> {
+    let mut pinholes = Vec::new();
+    collect_pinholes(value, &mut pinholes);
+    if has_unrecognized_pinhole_entry(value, false) {
+        bail!("в ответе есть нераспознанные IPv6-правила; список не выведен и изменение отменено");
+    }
+    if pinholes.is_empty()
+        && !is_empty_supported_collection(
+            value,
+            &["pinholes", "pinhole", "entries", "rules"],
+            &["status", "count", "total", "data", "result"],
+        )
+    {
+        bail!("роутер вернул неизвестный формат IPv6 pinhole-правил; содержимое не выведено");
+    }
+    Ok(Value::Array(pinholes))
+}
+
+fn is_empty_supported_collection(
+    value: &Value,
+    collection_keys: &[&str],
+    wrapper_keys: &[&str],
+) -> bool {
+    match value {
+        Value::Null => true,
+        Value::Array(entries) => entries.is_empty(),
+        Value::Object(fields) if fields.is_empty() => true,
+        Value::Object(fields) => {
+            let has_collection = fields.keys().any(|key| {
+                collection_keys
+                    .iter()
+                    .any(|name| key.eq_ignore_ascii_case(name))
+            });
+            if has_collection {
+                fields.iter().all(|(key, value)| {
+                    if collection_keys
+                        .iter()
+                        .any(|name| key.eq_ignore_ascii_case(name))
+                    {
+                        matches!(value, Value::Null)
+                            || matches!(value, Value::Array(values) if values.is_empty())
+                            || matches!(value, Value::Object(values) if values.is_empty())
+                    } else {
+                        wrapper_keys
+                            .iter()
+                            .any(|name| key.eq_ignore_ascii_case(name))
+                            && !value.is_object()
+                            && !value.is_array()
+                    }
+                })
+            } else if fields.len() == 1 {
+                fields.iter().all(|(key, value)| {
+                    wrapper_keys
+                        .iter()
+                        .any(|name| key.eq_ignore_ascii_case(name))
+                        && is_empty_supported_collection(value, collection_keys, wrapper_keys)
+                })
+            } else {
+                false
+            }
+        }
+        _ => false,
+    }
+}
+
+fn has_unrecognized_dynamic_dns_entry(value: &Value, inside_collection: bool) -> bool {
+    match value {
+        Value::Array(entries) => entries
+            .iter()
+            .any(|entry| has_unrecognized_dynamic_dns_entry(entry, true)),
+        Value::Object(fields) => {
+            let is_record = fields.iter().any(|(key, value)| {
+                key.eq_ignore_ascii_case("hostname") && value.as_str().is_some()
+            });
+            if is_record {
+                return false;
+            }
+            let has_host_fields = fields.keys().any(|key| {
+                ["hostname", "service", "username", "password", "enable"]
+                    .iter()
+                    .any(|known| key.eq_ignore_ascii_case(known))
+            });
+            if has_host_fields {
+                return true;
+            }
+            if fields.is_empty() {
+                return inside_collection;
+            }
+            fields.iter().any(|(key, child)| {
+                let is_collection = ["hosts", "host", "entries"]
+                    .iter()
+                    .any(|name| key.eq_ignore_ascii_case(name));
+                let is_wrapper = ["status", "data", "result"]
+                    .iter()
+                    .any(|name| key.eq_ignore_ascii_case(name));
+                has_unrecognized_dynamic_dns_entry(
+                    child,
+                    is_collection || (inside_collection && !is_wrapper),
+                )
+            })
+        }
+        Value::Null => inside_collection,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => inside_collection,
+    }
+}
+
+fn has_unrecognized_pinhole_entry(value: &Value, inside_collection: bool) -> bool {
+    match value {
+        Value::Array(entries) => entries
+            .iter()
+            .any(|entry| has_unrecognized_pinhole_entry(entry, true)),
+        Value::Object(fields) => {
+            if is_pinhole_record(fields) {
+                return false;
+            }
+            let has_rule_fields = fields.keys().any(|key| {
+                [
+                    "id",
+                    "description",
+                    "protocol",
+                    "enable",
+                    "destinationipaddress",
+                    "destinationport",
+                ]
+                .iter()
+                .any(|known| key.eq_ignore_ascii_case(known))
+            });
+            if has_rule_fields {
+                return true;
+            }
+            if fields.is_empty() {
+                return inside_collection;
+            }
+            fields.iter().any(|(key, child)| {
+                let is_collection = ["pinholes", "pinhole", "entries", "rules"]
+                    .iter()
+                    .any(|name| key.eq_ignore_ascii_case(name));
+                let is_wrapper = ["status", "data", "result"]
+                    .iter()
+                    .any(|name| key.eq_ignore_ascii_case(name));
+                has_unrecognized_pinhole_entry(
+                    child,
+                    is_collection || (inside_collection && !is_wrapper),
+                )
+            })
+        }
+        Value::Null => inside_collection,
+        Value::Bool(_) | Value::Number(_) | Value::String(_) => inside_collection,
+    }
+}
+
+fn collect_pinholes(value: &Value, pinholes: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_pinholes(entry, pinholes);
+            }
+        }
+        Value::Object(fields) if is_pinhole_record(fields) => {
+            pinholes.push(Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| is_public_pinhole_field(key))
+                    .filter(|(_, value)| !matches!(value, Value::Array(_) | Value::Object(_)))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ));
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_pinholes(entry, pinholes);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_pinhole_record(fields: &serde_json::Map<String, Value>) -> bool {
+    fields.iter().any(|(key, value)| {
+        key.eq_ignore_ascii_case("destinationIPAddress") && value.as_str().is_some()
+    })
+}
+
+fn is_public_pinhole_field(key: &str) -> bool {
+    [
+        "id",
+        "Id",
+        "ID",
+        "description",
+        "Description",
+        "protocol",
+        "Protocol",
+        "enable",
+        "Enable",
+        "destinationIPAddress",
+        "DestinationIPAddress",
+        "destinationPort",
+        "DestinationPort",
+        "sourcePort",
+        "SourcePort",
+    ]
+    .iter()
+    .any(|allowed| key.eq_ignore_ascii_case(allowed))
+}
+
+fn find_pinhole<'a>(pinholes: &'a Value, name: &str) -> Result<Option<&'a Value>> {
+    let Some(entries) = pinholes.as_array() else {
+        bail!("внутренняя ошибка: список IPv6-правил не является массивом");
+    };
+    let mut matches = entries.iter().filter(|entry| {
+        ["id", "Id", "ID", "description", "Description"]
+            .iter()
+            .any(|key| field_string(entry, &[*key]).is_some_and(|id| id.eq_ignore_ascii_case(name)))
+    });
+    let first = matches.next();
+    if matches.next().is_some() {
+        bail!("имя {name:?} совпадает с несколькими IPv6-правилами; удаление отменено");
+    }
+    Ok(first)
+}
+
 fn collect_device_summaries(value: &Value, devices: &mut Vec<Value>) {
     match value {
         Value::Array(entries) => {
@@ -851,7 +1365,9 @@ fn collect_device_summaries(value: &Value, devices: &mut Vec<Value>) {
         Value::Object(fields) if is_device_summary(fields) => {
             let mut summary = serde_json::Map::new();
             for (key, value) in fields {
-                if is_public_device_field(key) {
+                if is_public_device_field(key)
+                    && !matches!(value, Value::Array(_) | Value::Object(_))
+                {
                     summary.insert(key.clone(), value.clone());
                 } else if key.eq_ignore_ascii_case("BDD")
                     && let Some(name) = value
@@ -1165,12 +1681,15 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        filter_blocked_schedules, find_device_by_mac, find_device_schedule, find_forward,
+        Router, ensure_mutation_succeeded, filter_blocked_schedules, find_device_by_mac,
+        find_device_schedule, find_dynamic_dns_host, find_forward, find_pinhole,
         normalize_mac_address, sanitize_backup_status, sanitize_device_schedules,
-        sanitize_device_summaries, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
-        sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
-        sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
+        sanitize_device_summaries, sanitize_dynamic_dns_hosts, sanitize_enable_status,
+        sanitize_leases, sanitize_ntp_servers, sanitize_open_mode_status, sanitize_pinholes,
+        sanitize_remote_access_status, sanitize_users, sanitize_wan_stats,
+        validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
+        validate_pinhole_destination, validate_pinhole_protocol,
     };
 
     #[test]
@@ -1463,6 +1982,141 @@ mod tests {
         assert_eq!(found["DeviceName"], "Tablet");
         assert!(!devices.to_string().contains("must-not-leak"));
         assert!(find_device_by_mac(&devices, "FF:FF:FF:FF:FF:FF").is_none());
+    }
+
+    #[test]
+    fn pinhole_output_is_flattened_and_allowlisted() {
+        let response = serde_json::json!({
+            "entries": [{
+                "id": "web-server",
+                "destinationIPAddress": "fd12:3456:789a::10",
+                "destinationPort": "443",
+                "protocol": "6",
+                "enable": true,
+                "username": "must-not-leak"
+            }],
+            "metadata": { "password": "also-must-not-leak" }
+        });
+
+        let pinholes = sanitize_pinholes(&response).unwrap();
+        assert_eq!(pinholes.as_array().unwrap().len(), 1);
+        assert_eq!(pinholes[0]["id"], "web-server");
+        assert!(find_pinhole(&pinholes, "WEB-SERVER").unwrap().is_some());
+        assert!(!pinholes.to_string().contains("must-not-leak"));
+    }
+
+    #[test]
+    fn validates_ipv6_pinhole_destination_and_protocol() {
+        assert!(validate_pinhole_destination("fd12:3456:789a::10".parse().unwrap()).is_ok());
+        assert!(validate_pinhole_destination("2001:db8::10".parse().unwrap()).is_ok());
+        assert!(validate_pinhole_destination("::".parse().unwrap()).is_err());
+        assert!(validate_pinhole_destination("::1".parse().unwrap()).is_err());
+        assert!(validate_pinhole_destination("fe80::10".parse().unwrap()).is_err());
+        assert!(validate_pinhole_destination("ff02::1".parse().unwrap()).is_err());
+        assert!(validate_pinhole_protocol("6").is_ok());
+        assert!(validate_pinhole_protocol("17").is_ok());
+        assert!(validate_pinhole_protocol("6,17").is_err());
+    }
+
+    #[test]
+    fn ambiguous_pinhole_identifier_is_rejected() {
+        let pinholes = serde_json::json!([
+            { "id": "first", "description": "second", "destinationIPAddress": "fd12::1" },
+            { "id": "second", "description": "other", "destinationIPAddress": "fd12::2" }
+        ]);
+        assert!(find_pinhole(&pinholes, "second").is_err());
+        assert!(Router::validate_ipv6_pinhole_identifier("Friendly name").is_ok());
+        assert!(Router::validate_ipv6_pinhole_identifier("bad\nname").is_err());
+    }
+
+    #[test]
+    fn dynamic_dns_host_output_excludes_credentials() {
+        let response = serde_json::json!({
+            "hosts": [{
+                "hostname": "home.example.net",
+                "service": "NoIP",
+                "status": "updating",
+                "enable": true,
+                "username": "private-user",
+                "password": "must-not-leak"
+            }],
+            "metadata": { "token": "also-must-not-leak" }
+        });
+
+        let hosts = sanitize_dynamic_dns_hosts(&response).unwrap();
+        assert_eq!(hosts.as_array().unwrap().len(), 1);
+        assert_eq!(hosts[0]["hostname"], "home.example.net");
+        assert!(find_dynamic_dns_host(&hosts, "HOME.EXAMPLE.NET").is_some());
+        assert!(!hosts.to_string().contains("private-user"));
+        assert!(!hosts.to_string().contains("must-not-leak"));
+    }
+
+    #[test]
+    fn validates_dynamic_dns_identity_and_hostname() {
+        assert!(validate_dynamic_dns_hostname("home.example.net").is_ok());
+        assert!(validate_dynamic_dns_hostname("-bad.example.net").is_err());
+        assert!(validate_dynamic_dns_hostname("bad..example.net").is_err());
+        assert!(validate_dynamic_dns_hostname("bad.example.net.").is_err());
+        assert!(Router::validate_dynamic_dns_identity("NoIP", "home.example.net", "user").is_ok());
+        assert!(Router::validate_dynamic_dns_identity("", "home.example.net", "user").is_err());
+        assert!(Router::validate_dynamic_dns_identity("NoIP", "home.example.net", " ").is_err());
+    }
+
+    #[test]
+    fn unknown_empty_list_response_is_not_mistaken_for_no_rules() {
+        let unknown = serde_json::json!({ "metadata": { "items": [] } });
+        assert!(sanitize_pinholes(&unknown).is_err());
+        assert!(sanitize_dynamic_dns_hosts(&unknown).is_err());
+        assert!(
+            sanitize_dynamic_dns_hosts(&serde_json::json!({
+                "hosts": [{ "hostname": { "password": "private" } }]
+            }))
+            .is_err()
+        );
+        assert!(
+            sanitize_dynamic_dns_hosts(&serde_json::json!({
+                "hosts": [
+                    { "hostname": "known.example.net", "service": "NoIP" },
+                    { "hostname": 12, "service": "unknown" }
+                ]
+            }))
+            .is_err()
+        );
+        assert!(
+            sanitize_pinholes(&serde_json::json!({
+                "rules": [{ "destinationIPAddress": { "token": "private" } }]
+            }))
+            .is_err()
+        );
+        assert!(
+            sanitize_pinholes(&serde_json::json!({
+                "rules": [
+                    { "id": "known", "destinationIPAddress": "fd12::1" },
+                    { "id": "unknown", "destinationPort": "443" }
+                ]
+            }))
+            .is_err()
+        );
+        assert_eq!(
+            sanitize_pinholes(&serde_json::json!({ "Pinhole": [] })).unwrap(),
+            serde_json::json!([])
+        );
+        assert_eq!(
+            sanitize_dynamic_dns_hosts(&serde_json::json!({ "hosts": [] })).unwrap(),
+            serde_json::json!([])
+        );
+    }
+
+    #[test]
+    fn rejected_mutation_response_is_not_reported_as_success() {
+        assert!(ensure_mutation_succeeded(&serde_json::json!(false), "write").is_err());
+        assert!(
+            ensure_mutation_succeeded(&serde_json::json!({ "success": false }), "write").is_err()
+        );
+        assert!(ensure_mutation_succeeded(&serde_json::json!(true), "write").is_ok());
+        assert!(
+            ensure_mutation_succeeded(&serde_json::json!({ "status": "done" }), "write").is_ok()
+        );
     }
 
     #[test]
