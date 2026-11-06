@@ -42,6 +42,13 @@ impl Router {
         self.client.call("NMC", "getWANStatus", json!({}))
     }
 
+    pub fn wan_stats(&self) -> Result<Value> {
+        let stats = self
+            .client
+            .call("NeMo.Intf.data", "getNetDevStats", json!({}))?;
+        Ok(sanitize_wan_stats(&stats))
+    }
+
     pub fn wifi_status(&self) -> Result<Value> {
         self.client.call("NMC.Wifi", "get", json!({}))
     }
@@ -787,14 +794,30 @@ fn sanitize_enable_status(value: &Value) -> Value {
     )
 }
 
+fn sanitize_wan_stats(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(key, _)| {
+                key.eq_ignore_ascii_case("RxBytes") || key.eq_ignore_ascii_case("TxBytes")
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
         find_forward, sanitize_enable_status, sanitize_leases, sanitize_open_mode_status,
-        sanitize_users, validate_forward_name, validate_forward_protocol, validate_lan_config,
-        validate_lan_destination,
+        sanitize_users, sanitize_wan_stats, validate_forward_name, validate_forward_protocol,
+        validate_lan_config, validate_lan_destination,
     };
 
     #[test]
@@ -976,5 +999,20 @@ mod tests {
         let serialized = leases.to_string();
         assert!(serialized.contains("192.168.1.40"));
         assert!(!serialized.contains("must-not-leak"));
+    }
+
+    #[test]
+    fn wan_stats_output_contains_only_byte_counters() {
+        let stats = serde_json::json!({
+            "RxBytes": 1234,
+            "TxBytes": 5678,
+            "InterfaceName": "data",
+            "Secret": "must-not-leak"
+        });
+
+        assert_eq!(
+            sanitize_wan_stats(&stats),
+            serde_json::json!({ "RxBytes": 1234, "TxBytes": 5678 })
+        );
     }
 }

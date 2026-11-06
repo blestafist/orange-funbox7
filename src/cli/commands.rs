@@ -479,6 +479,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
                 None => println!("WAN: {}", status),
             }
         }
+        Command::WanStats => {
+            let stats = router.wan_stats()?;
+            println!("{}", pretty_redacted(&stats)?);
+        }
         Command::Wifi { action: None } => show_wifi(&router.wifi_status()?),
         Command::Wifi {
             action: Some(action),
