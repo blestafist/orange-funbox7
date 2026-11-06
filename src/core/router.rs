@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 use super::RouterClient;
 
-/// Общие операции Funbox, используемые CLI и будущими интерфейсами (например, MCP).
+/// Shared router operations for the CLI and future interfaces such as MCP.
 pub struct Router {
     client: RouterClient,
 }
@@ -135,6 +135,10 @@ impl Router {
         )
     }
 
+    pub fn validate_lan_destination(&self, destination: Ipv4Addr) -> Result<()> {
+        validate_lan_destination(&self.lan()?, destination)
+    }
+
     pub fn network_details(&self) -> Result<Value> {
         let lan = self.lan()?;
         let interfaces = self.client.call(
@@ -154,8 +158,8 @@ impl Router {
             json!({ "name": "VLANID" }),
         )?;
         let mtu = self.internet_mtu()?;
-        // PPP доступен не на всех типах подключения и прошивках. Оставляем
-        // диагностику WAN/IPv6 полезной, но явно показываем ошибку PPP-вызова.
+        // PPP is unavailable on some connection types and firmware versions.
+        // Keep WAN/IPv6 diagnostics useful while reporting PPP errors explicitly.
         let ppp = match self.ppp_info() {
             Ok(data) => json!({ "available": true, "data": data }),
             Err(error) => json!({ "available": false, "error": error.to_string() }),
@@ -310,6 +314,7 @@ impl Router {
         if external_port == 0 || internal_port == 0 {
             bail!("номер порта должен быть в диапазоне 1–65535");
         }
+        self.validate_lan_destination(destination_ip)?;
 
         let current = self.forwards()?;
         if find_forward(&current, name).is_some() {
@@ -396,7 +401,7 @@ impl Router {
     }
 
     pub fn set_dmz(&self, destination: Ipv4Addr) -> Result<Value> {
-        validate_dmz_address(destination)?;
+        self.validate_lan_destination(destination)?;
         let current = self.dmz()?;
         let no_existing_dmz =
             current.is_null() || current.as_object().is_some_and(serde_json::Map::is_empty);
@@ -495,6 +500,10 @@ fn validate_lan_config(
     dhcp_min: Ipv4Addr,
     dhcp_max: Ipv4Addr,
 ) -> Result<()> {
+    if !address.is_private() || !dhcp_min.is_private() || !dhcp_max.is_private() {
+        bail!("LAN-адрес и DHCP-диапазон должны быть частными IPv4-адресами RFC 1918");
+    }
+
     let address = u32::from(address);
     let mask = u32::from(netmask);
     let prefix = mask.leading_ones();
@@ -504,6 +513,9 @@ fn validate_lan_config(
 
     let network = address & mask;
     let broadcast = network | !mask;
+    if !is_private_network(network, broadcast) {
+        bail!("LAN-подсеть должна целиком находиться в частном диапазоне RFC 1918");
+    }
     if address == network || address == broadcast {
         bail!("LAN-адрес роутера не может быть адресом сети или broadcast");
     }
@@ -524,18 +536,72 @@ fn validate_lan_config(
     Ok(())
 }
 
-fn validate_dmz_address(address: Ipv4Addr) -> Result<()> {
-    if !address.is_private() {
-        bail!("DMZ разрешено направлять только на частный LAN IPv4-адрес");
+fn validate_lan_destination(lan: &Value, destination: Ipv4Addr) -> Result<()> {
+    if !destination.is_private() {
+        bail!("адрес назначения должен находиться в частном IPv4-диапазоне RFC 1918");
     }
+
+    let address = ipv4_field(lan, &["Address", "IPAddress", "LANIPAddress", "IP"])
+        .ok_or_else(|| anyhow!("в ответе LAN API не найден IPv4-адрес роутера"))?;
+    let netmask = ipv4_field(lan, &["Netmask", "SubnetMask", "LANSubnetMask", "Mask"])
+        .ok_or_else(|| anyhow!("в ответе LAN API не найдена IPv4-маска"))?;
+    let mask = u32::from(netmask);
+    let prefix = mask.leading_ones();
+    if !(1..=30).contains(&prefix) || mask != (u32::MAX << (32 - prefix)) {
+        bail!("роутер вернул некорректную маску LAN");
+    }
+
+    let address = u32::from(address);
+    let network = address & mask;
+    let broadcast = network | !mask;
+    if !is_private_network(network, broadcast) {
+        bail!("текущая LAN-подсеть не является частной IPv4-подсетью RFC 1918");
+    }
+    if address == network || address == broadcast {
+        bail!("роутер вернул некорректный LAN-адрес");
+    }
+
+    let destination = u32::from(destination);
+    if destination & mask != network {
+        bail!("адрес назначения должен находиться в текущей LAN-подсети");
+    }
+    if destination == network || destination == broadcast || destination == address {
+        bail!("адрес назначения должен быть другим LAN-адресом хоста");
+    }
+
     Ok(())
+}
+
+fn ipv4_field(value: &Value, fields: &[&str]) -> Option<Ipv4Addr> {
+    let object = value.as_object()?;
+    fields.iter().find_map(|field| {
+        object
+            .iter()
+            .find(|(key, _)| key.eq_ignore_ascii_case(field))
+            .and_then(|(_, value)| value.as_str())
+            .and_then(|value| value.parse().ok())
+    })
+}
+
+fn is_private_network(network: u32, broadcast: u32) -> bool {
+    const PRIVATE_RANGES: [(u32, u32); 3] = [
+        (0x0a00_0000, 0x0aff_ffff), // 10.0.0.0/8
+        (0xac10_0000, 0xac1f_ffff), // 172.16.0.0/12
+        (0xc0a8_0000, 0xc0a8_ffff), // 192.168.0.0/16
+    ];
+
+    PRIVATE_RANGES
+        .iter()
+        .any(|(start, end)| network >= *start && broadcast <= *end)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::net::Ipv4Addr;
+
     use super::{
-        find_forward, validate_dmz_address, validate_forward_name, validate_forward_protocol,
-        validate_lan_config,
+        find_forward, validate_forward_name, validate_forward_protocol, validate_lan_config,
+        validate_lan_destination,
     };
 
     #[test]
@@ -562,8 +628,6 @@ mod tests {
 
     #[test]
     fn validates_lan_and_dhcp_subnet() {
-        use std::net::Ipv4Addr;
-
         let ip = |value: &str| value.parse::<Ipv4Addr>().unwrap();
         assert!(
             validate_lan_config(
@@ -592,12 +656,56 @@ mod tests {
             )
             .is_err()
         );
+        assert!(
+            validate_lan_config(
+                ip("8.8.8.1"),
+                ip("255.255.255.0"),
+                ip("8.8.8.50"),
+                ip("8.8.8.200")
+            )
+            .is_err()
+        );
+        assert!(
+            validate_lan_config(
+                ip("127.0.0.2"),
+                ip("255.255.255.0"),
+                ip("127.0.0.50"),
+                ip("127.0.0.200")
+            )
+            .is_err()
+        );
+        assert!(
+            validate_lan_config(
+                ip("10.0.0.1"),
+                ip("254.0.0.0"),
+                ip("10.0.0.50"),
+                ip("10.0.0.200")
+            )
+            .is_err()
+        );
     }
 
     #[test]
-    fn dmz_accepts_only_private_addresses() {
-        assert!(validate_dmz_address("192.168.1.10".parse().unwrap()).is_ok());
-        assert!(validate_dmz_address("10.0.0.20".parse().unwrap()).is_ok());
-        assert!(validate_dmz_address("8.8.8.8".parse().unwrap()).is_err());
+    fn forwarding_and_dmz_destinations_must_be_lan_hosts() {
+        let lan = serde_json::json!({
+            "Address": "192.168.1.1",
+            "Netmask": "255.255.255.0"
+        });
+        let ip = |value: &str| value.parse::<Ipv4Addr>().unwrap();
+
+        assert!(validate_lan_destination(&lan, ip("192.168.1.25")).is_ok());
+        assert!(validate_lan_destination(&lan, ip("192.168.2.25")).is_err());
+        assert!(validate_lan_destination(&lan, ip("8.8.8.8")).is_err());
+        assert!(validate_lan_destination(&lan, ip("127.0.0.1")).is_err());
+        assert!(validate_lan_destination(&lan, ip("192.168.1.1")).is_err());
+        assert!(validate_lan_destination(&lan, ip("192.168.1.0")).is_err());
+        assert!(validate_lan_destination(&lan, ip("192.168.1.255")).is_err());
+        assert!(
+            validate_lan_destination(
+                &serde_json::json!({ "Address": "192.168.1.1" }),
+                ip("192.168.1.25")
+            )
+            .is_err()
+        );
     }
 }

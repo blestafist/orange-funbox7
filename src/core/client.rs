@@ -28,8 +28,8 @@ impl RouterClient {
 
         let base = format!("http://{host}");
         let http = Client::builder()
-            // Веб-панель выдаёт сесcионную cookie при входе. Без cookie часть
-            // сервисов отвечает Permission denied даже при валидном contextID.
+            // The web UI issues a session cookie on login. Some services return
+            // Permission denied without it, even when the contextID is valid.
             .cookie_store(true)
             .user_agent("funbox7-cli/0.1")
             .timeout(Duration::from_secs(12))
@@ -127,7 +127,7 @@ impl RouterClient {
             "parameters": { "applicationName": APP_NAME }
         });
         let authorization = format!("X-Sah-Logout {context_id}");
-        // Завершение сессии — best effort; не затираем исходную ошибку команды.
+        // Releasing the session is best-effort and must not mask command errors.
         let _ = self.request(&body, &authorization);
     }
 }

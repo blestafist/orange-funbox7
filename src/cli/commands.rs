@@ -217,16 +217,7 @@ fn truncate(value: &str, max_chars: usize) -> String {
 }
 
 fn show_lan(value: &Value) -> Result<()> {
-    let object = value
-        .as_object()
-        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат LAN-настроек"))?;
-    for (key, value) in object {
-        let key_lower = key.to_ascii_lowercase();
-        if is_sensitive_key(&key_lower) {
-            continue;
-        }
-        println!("{key}: {value}");
-    }
+    println!("{}", pretty_redacted(value)?);
     Ok(())
 }
 
@@ -361,7 +352,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
                 println!("Отменено.");
                 return Ok(());
             }
-            // Funbox API требует оба поля: Enable и Status.
+            // The Funbox API requires both fields: Enable and Status.
             router.set_wifi(enabled)?;
             println!("Команда отправлена.");
             show_wifi(&router.wifi_status()?);
@@ -511,6 +502,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             if *external_port == 0 || *internal_port == 0 {
                 bail!("номер порта должен быть в диапазоне 1–65535");
             }
+            router.validate_lan_destination(destination_ip)?;
             let protocol_value = protocol.as_api_value();
             let prompt = format!(
                 "Открыть порт {external_port}/{} на {destination_ip}:{internal_port} с доступом из Интернета?",
@@ -572,9 +564,7 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             println!("{}", pretty_redacted(&dmz)?);
         }
         Command::DmzSet { destination } => {
-            if !destination.is_private() {
-                bail!("DMZ разрешено направлять только на частный LAN IPv4-адрес");
-            }
+            router.validate_lan_destination(*destination)?;
             let prompt = format!(
                 "ВНИМАНИЕ: направить весь входящий интернет-трафик на {destination}? Это уменьшит защиту этого устройства."
             );
