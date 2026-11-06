@@ -1,0 +1,504 @@
+use std::{
+    io::{self, Write},
+    net::Ipv4Addr,
+    str::FromStr,
+};
+
+use anyhow::{Context, Result, anyhow, bail};
+use serde_json::Value;
+
+use crate::{
+    cli::{Cli, Command, WifiAction},
+    core::Router,
+};
+
+pub fn password() -> Result<String> {
+    if let Ok(value) = std::env::var("FUNBOX_PASSWORD")
+        && !value.is_empty()
+    {
+        return Ok(value);
+    }
+    rpassword::prompt_password("Пароль роутера: ").context("не удалось прочитать пароль")
+}
+
+fn confirm_wifi_change(enabled: bool) -> Result<bool> {
+    if enabled {
+        print!("Включить Wi-Fi на роутере? [д/Н] ");
+    } else {
+        print!("Выключить Wi-Fi? Подключённые по Wi-Fi устройства потеряют связь. [д/Н] ");
+    }
+    io::stdout()
+        .flush()
+        .context("не удалось вывести запрос подтверждения")?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("не удалось прочитать подтверждение")?;
+    Ok(matches!(
+        answer.trim().to_lowercase().as_str(),
+        "д" | "да" | "y" | "yes"
+    ))
+}
+
+fn confirm_action(prompt: &str) -> Result<bool> {
+    print!("{prompt} [д/Н] ");
+    io::stdout()
+        .flush()
+        .context("не удалось вывести запрос подтверждения")?;
+    let mut answer = String::new();
+    io::stdin()
+        .read_line(&mut answer)
+        .context("не удалось прочитать подтверждение")?;
+    Ok(matches!(
+        answer.trim().to_lowercase().as_str(),
+        "д" | "да" | "y" | "yes"
+    ))
+}
+
+fn show_info(value: &Value) {
+    println!(
+        "Модель: {}",
+        value
+            .get("ProductClass")
+            .and_then(Value::as_str)
+            .unwrap_or("неизвестно")
+    );
+    println!(
+        "Прошивка: {}",
+        value
+            .get("SoftwareVersion")
+            .and_then(Value::as_str)
+            .unwrap_or("неизвестна")
+    );
+    if let Some(version) = value
+        .get("AdditionalSoftwareVersion")
+        .and_then(Value::as_str)
+    {
+        println!("Доп. версия: {version}");
+    }
+}
+
+fn show_wifi(value: &Value) {
+    print!("Wi-Fi: ");
+    match value.get("Enable").and_then(Value::as_bool) {
+        Some(true) => println!("включён"),
+        Some(false) => println!("выключен"),
+        None => println!("состояние неизвестно"),
+    }
+    if let Some(active) = value.get("Status").and_then(Value::as_bool) {
+        println!("Радио активно: {}", if active { "да" } else { "нет" });
+    }
+    if let Some(state) = value.get("CurrentState").and_then(Value::as_str) {
+        println!("Состояние: {state}");
+    }
+    if let Some(scheduled) = value.get("SchedulingEnabled").and_then(Value::as_bool) {
+        println!(
+            "Расписание: {}",
+            if scheduled {
+                "включено"
+            } else {
+                "выключено"
+            }
+        );
+    }
+}
+
+fn string_field<'a>(value: &'a Value, keys: &[&str]) -> &'a str {
+    keys.iter()
+        .find_map(|key| value.get(*key).and_then(Value::as_str))
+        .filter(|value| !value.is_empty())
+        .unwrap_or("—")
+}
+
+fn show_devices(value: &Value) -> Result<()> {
+    let devices = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат списка устройств"))?;
+
+    println!(
+        "{:<26} {:<16} {:<18} {:<16} СЕТЬ",
+        "ИМЯ", "IP", "MAC", "ТИП"
+    );
+    println!("{}", "─".repeat(88));
+    for device in devices {
+        let fallback_name = device
+            .get("BDD")
+            .and_then(|bdd| bdd.get("DeviceName"))
+            .and_then(Value::as_str)
+            .unwrap_or("—");
+        let name = device
+            .get("Name")
+            .and_then(Value::as_str)
+            .filter(|name| !name.is_empty())
+            .unwrap_or(fallback_name);
+        let ip = string_field(device, &["IPAddress"]);
+        let mac = string_field(device, &["PhysAddress"]);
+        let kind = string_field(device, &["DeviceType", "DeviceCategory"]);
+        let network = string_field(device, &["InterfaceName", "Layer2Interface"]);
+        println!(
+            "{:<26} {:<16} {:<18} {:<16} {}",
+            truncate(name, 25),
+            truncate(ip, 15),
+            truncate(mac, 17),
+            truncate(kind, 15),
+            network
+        );
+    }
+    println!("\nВсего активных DHCP-устройств: {}", devices.len());
+    Ok(())
+}
+
+fn show_networks(value: &Value) -> Result<()> {
+    let vaps = value
+        .get("wlanvap")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("роутер не вернул список Wi-Fi точек доступа"))?;
+
+    for (index, (vap_id, vap)) in vaps.iter().enumerate() {
+        if index > 0 {
+            println!();
+        }
+        let band = if vap_id.starts_with("vap2g") {
+            "2.4 ГГц"
+        } else if vap_id.starts_with("vap5g") {
+            "5 ГГц"
+        } else if vap_id.starts_with("vap6g") {
+            "6 ГГц"
+        } else {
+            vap_id
+        };
+        println!("{} ({band})", string_field(vap, &["SSID"]));
+        println!("  интерфейс: {vap_id}");
+        println!("  состояние: {}", string_field(vap, &["VAPStatus"]));
+        let count = vap
+            .get("ActiveAssociatedDeviceNumberOfEntries")
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
+        println!("  подключено устройств: {count}");
+
+        if let Some(associated) = vap.get("AssociatedDevice").and_then(Value::as_object) {
+            let active = associated
+                .values()
+                .filter(|device| device.get("Active").and_then(Value::as_bool) == Some(true))
+                .collect::<Vec<_>>();
+            if !active.is_empty() {
+                println!("  клиенты:");
+                for device in active {
+                    let mac = string_field(device, &["MACAddress"]);
+                    let signal = device
+                        .get("SignalStrength")
+                        .map(|value| value.to_string())
+                        .unwrap_or_else(|| "—".to_owned());
+                    let mode = string_field(device, &["OperatingStandard", "Mode"]);
+                    println!("    {mac:<18} сигнал {signal} dBm, {mode}");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn truncate(value: &str, max_chars: usize) -> String {
+    let mut chars = value.chars();
+    let prefix = chars.by_ref().take(max_chars).collect::<String>();
+    if chars.next().is_some() {
+        format!(
+            "{}…",
+            prefix
+                .chars()
+                .take(max_chars.saturating_sub(1))
+                .collect::<String>()
+        )
+    } else {
+        prefix
+    }
+}
+
+fn show_lan(value: &Value) -> Result<()> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат LAN-настроек"))?;
+    for (key, value) in object {
+        let key_lower = key.to_ascii_lowercase();
+        if is_sensitive_key(&key_lower) {
+            continue;
+        }
+        println!("{key}: {value}");
+    }
+    Ok(())
+}
+
+fn show_leases(value: &Value) -> Result<()> {
+    let leases = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DHCP-резерваций"))?;
+    if leases.is_empty() {
+        println!("Закреплённых DHCP-адресов нет.");
+        return Ok(());
+    }
+    println!("{:<18} {:<18} ИМЯ", "IP", "MAC");
+    println!("{}", "─".repeat(60));
+    for lease in leases {
+        println!(
+            "{:<18} {:<18} {}",
+            string_field(lease, &["IPAddress", "IP"]),
+            string_field(lease, &["MACAddress", "MAC"]),
+            string_field(lease, &["HostName", "Hostname", "Name"])
+        );
+    }
+    Ok(())
+}
+
+fn show_guest(value: &Value) {
+    for key in ["Enable", "Status"] {
+        if let Some(enabled) = value.get(key).and_then(Value::as_bool) {
+            println!(
+                "{}: {}",
+                if key == "Enable" {
+                    "Гостевая Wi-Fi"
+                } else {
+                    "Активна"
+                },
+                if enabled { "да" } else { "нет" }
+            );
+        }
+    }
+    for (key, label) in [
+        ("ActivationTimeout", "Таймаут активации"),
+        ("ActivationDuration", "Длительность"),
+        ("StartTime", "Время запуска"),
+        ("ValidTime", "Время окончания"),
+    ] {
+        if let Some(value) = value.get(key).filter(|value| !value.is_null()) {
+            println!("{label}: {value}");
+        }
+    }
+}
+
+fn normalize_mac(value: &str) -> Result<String> {
+    let octets = value.split(':').collect::<Vec<_>>();
+    if octets.len() != 6
+        || octets
+            .iter()
+            .any(|octet| octet.len() != 2 || !octet.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        bail!("неверный MAC-адрес; ожидается формат AA:BB:CC:DD:EE:FF");
+    }
+    Ok(value.to_ascii_uppercase())
+}
+
+fn validate_ipv4(value: &str) -> Result<&str> {
+    Ipv4Addr::from_str(value).context("ожидается корректный IPv4-адрес")?;
+    Ok(value)
+}
+
+fn is_sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    key.contains("password")
+        || key.contains("passphrase")
+        || key.contains("secret")
+        || key.contains("psk")
+        || key.contains("credential")
+        || key.contains("preshared")
+        || key.contains("pre_shared")
+        || key.ends_with("key")
+        || key == "pin"
+        || key == "pincode"
+        || key == "key"
+        || key.ends_with("_key")
+}
+
+fn pretty_redacted(value: &Value) -> Result<String> {
+    serde_json::to_string_pretty(&redact(value)).context("не удалось подготовить JSON для вывода")
+}
+
+fn redact(value: &Value) -> Value {
+    match value {
+        Value::Object(object) => {
+            let mut result = serde_json::Map::new();
+            for (key, value) in object {
+                if is_sensitive_key(key) {
+                    result.insert(key.clone(), Value::String("[СКРЫТО]".to_owned()));
+                } else {
+                    result.insert(key.clone(), redact(value));
+                }
+            }
+            Value::Object(result)
+        }
+        Value::Array(items) => Value::Array(items.iter().map(redact).collect()),
+        other => other.clone(),
+    }
+}
+
+pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
+    match &cli.command {
+        Command::Info => show_info(&router.info()?),
+        Command::Wan => {
+            let status = router.wan_status()?;
+            match status.as_bool() {
+                Some(true) => println!("WAN: доступен"),
+                Some(false) => println!("WAN: недоступен"),
+                None => println!("WAN: {}", status),
+            }
+        }
+        Command::Wifi { action: None } => show_wifi(&router.wifi_status()?),
+        Command::Wifi {
+            action: Some(action),
+        } => {
+            let enabled = matches!(action, WifiAction::On);
+            if !cli.yes && !confirm_wifi_change(enabled)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            // Funbox API требует оба поля: Enable и Status.
+            router.set_wifi(enabled)?;
+            println!("Команда отправлена.");
+            show_wifi(&router.wifi_status()?);
+        }
+        Command::Devices => {
+            let devices = router.devices()?;
+            show_devices(&devices)?;
+        }
+        Command::Networks => {
+            let networks = router.networks()?;
+            show_networks(&networks)?;
+        }
+        Command::WifiStats => {
+            let stats = router.wifi_stats()?;
+            println!("{}", pretty_redacted(&stats)?);
+        }
+        Command::WifiRadios => {
+            let radios = router.wifi_radios()?;
+            println!("{}", pretty_redacted(&radios)?);
+        }
+        Command::Lan => {
+            let lan = router.lan()?;
+            show_lan(&lan)?;
+        }
+        Command::Leases => {
+            let leases = router.leases()?;
+            show_leases(&leases)?;
+        }
+        Command::Firewall { level: None } => {
+            let level = router.firewall_level()?;
+            println!("Уровень firewall: {level}");
+        }
+        Command::Firewall { level: Some(level) } => {
+            let level = level.as_api_value();
+            let prompt = format!("Установить уровень firewall {level}?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_firewall_level(level)?;
+            let current = router.firewall_level()?;
+            println!("Текущий уровень firewall: {current}");
+        }
+        Command::Guest => {
+            let status = router.guest()?;
+            show_guest(&status);
+            let details = router.guest_networks()?;
+            println!("\nПараметры гостевой сети (ключи скрыты):");
+            println!("{}", pretty_redacted(&details)?);
+        }
+        Command::Energy => {
+            let energy = router.energy()?;
+            println!("{}", pretty_redacted(&energy)?);
+        }
+        Command::Forwards => {
+            let forwards = router.forwards()?;
+            println!("{}", pretty_redacted(&forwards)?);
+        }
+        Command::Ipv6 => {
+            let settings = router.ipv6()?;
+            println!("{}", pretty_redacted(&settings)?);
+        }
+        Command::Time => {
+            let time = router.time()?;
+            println!("{}", pretty_redacted(&time)?);
+        }
+        Command::Reserve { mac, ip } => {
+            let mac = normalize_mac(mac)?;
+            let ip = validate_ipv4(ip)?;
+            let prompt = format!("Закрепить адрес {ip} за устройством {mac}?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.add_lease(&mac, ip)?;
+            println!("DHCP-резервация добавлена.");
+        }
+        Command::Unreserve { mac } => {
+            let mac = normalize_mac(mac)?;
+            let prompt = format!("Удалить DHCP-резервацию для {mac}?");
+            if !cli.yes && !confirm_action(&prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.remove_lease(&mac.to_ascii_lowercase())?;
+            println!("DHCP-резервация удалена.");
+        }
+        Command::Reboot => {
+            if !cli.yes
+                && !confirm_action("Перезагрузить роутер? Связь прервётся на несколько минут.")?
+            {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.reboot()?;
+            println!("Команда перезагрузки отправлена.");
+        }
+        Command::Status => {
+            show_info(&router.info()?);
+            let wan = router.wan_status()?;
+            match wan.as_bool() {
+                Some(true) => println!("WAN: доступен"),
+                Some(false) => println!("WAN: недоступен"),
+                None => println!("WAN: {}", wan),
+            }
+            show_wifi(&router.wifi_status()?);
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalize_mac, pretty_redacted, validate_ipv4};
+
+    #[test]
+    fn normalizes_mac_addresses() {
+        assert_eq!(
+            normalize_mac("aa:bb:cc:dd:ee:ff").unwrap(),
+            "AA:BB:CC:DD:EE:FF"
+        );
+        assert!(normalize_mac("aa:bb:cc:dd:ee").is_err());
+        assert!(normalize_mac("gg:bb:cc:dd:ee:ff").is_err());
+    }
+
+    #[test]
+    fn validates_ipv4_addresses() {
+        assert_eq!(validate_ipv4("192.168.1.25").unwrap(), "192.168.1.25");
+        assert!(validate_ipv4("192.168.1.999").is_err());
+        assert!(validate_ipv4("not-an-ip").is_err());
+    }
+
+    #[test]
+    fn redacts_wifi_secrets_recursively() {
+        let input = serde_json::json!({
+            "SSID": "guest-net",
+            "Security": {
+                "PreSharedKey": "do-not-print",
+                "KeyPassPhrase": "also-secret",
+                "password": "secret"
+            }
+        });
+
+        let output = pretty_redacted(&input).unwrap();
+        assert!(output.contains("guest-net"));
+        assert!(!output.contains("do-not-print"));
+        assert!(!output.contains("also-secret"));
+        assert!(!output.contains("\"secret\""));
+        assert_eq!(output.matches("[СКРЫТО]").count(), 3);
+    }
+}
