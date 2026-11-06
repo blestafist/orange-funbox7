@@ -136,15 +136,7 @@ impl RouterClient {
         });
         let response = self.request(&body, &format!("X-Sah {context_id}"))?;
         check_api_errors_with_privacy(&response, &format!("{service}.{method}"), false)?;
-        if let Some(status) = response.get("status")
-            && status != 0
-        {
-            bail!("ошибка роутера при {service}.{method}: статус {status}");
-        }
-        response
-            .get("data")
-            .cloned()
-            .ok_or_else(|| anyhow!("в ответе {service}.{method} нет поля data"))
+        successful_response_data(&response, &format!("{service}.{method}"))
     }
 
     fn call_with_privacy(
@@ -231,6 +223,19 @@ fn check_api_errors_with_privacy(response: &Value, operation: &str, sensitive: b
     bail!("ошибка роутера при {operation}: {details}");
 }
 
+fn successful_response_data(response: &Value, operation: &str) -> Result<Value> {
+    let status = response
+        .get("status")
+        .ok_or_else(|| anyhow!("в ответе {operation} нет поля status"))?;
+    if status != 0 {
+        bail!("ошибка роутера при {operation}: статус {status}");
+    }
+    response
+        .get("data")
+        .cloned()
+        .ok_or_else(|| anyhow!("в ответе {operation} нет поля data"))
+}
+
 fn short_body(body: &str) -> String {
     let compact = body.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut result = compact.chars().take(240).collect::<String>();
@@ -242,7 +247,28 @@ fn short_body(body: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::check_api_errors_with_privacy;
+    use super::{check_api_errors_with_privacy, successful_response_data};
+
+    #[test]
+    fn semantic_response_data_requires_success_status_and_payload() {
+        let response = serde_json::json!({
+            "status": 0,
+            "data": { "languageId": "pl" }
+        });
+        assert_eq!(
+            successful_response_data(&response, "getLanguage").unwrap(),
+            serde_json::json!({ "languageId": "pl" })
+        );
+        assert!(
+            successful_response_data(&serde_json::json!({ "status": 1 }), "getLanguage").is_err()
+        );
+        assert!(
+            successful_response_data(&serde_json::json!({ "data": {} }), "getLanguage").is_err()
+        );
+        assert!(
+            successful_response_data(&serde_json::json!({ "status": 0 }), "getLanguage").is_err()
+        );
+    }
 
     #[test]
     fn sensitive_api_errors_do_not_echo_provider_credentials() {
