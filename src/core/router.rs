@@ -168,6 +168,22 @@ impl Router {
         self.client.call("NMC.Guest", "get", json!({}))
     }
 
+    pub fn set_guest(&self, enabled: bool) -> Result<Value> {
+        if enabled {
+            self.client.call(
+                "NMC.WlanTimer",
+                "setActivationTimer",
+                json!({ "InterfaceName": "guest", "Timeout": 0 }),
+            )
+        } else {
+            self.client.call(
+                "NMC.WlanTimer",
+                "disableActivationTimer",
+                json!({ "InterfaceName": "guest" }),
+            )
+        }
+    }
+
     pub fn guest_networks(&self) -> Result<Value> {
         self.client.call(
             "NeMo.Intf.guest",

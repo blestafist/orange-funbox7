@@ -31,7 +31,9 @@ cargo run -- internet-details # WAN, IPv6 и VLAN провайдера
 cargo run -- leases       # закреплённые DHCP-адреса
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
-cargo run -- guest        # гостевая Wi-Fi сеть
+cargo run -- guest        # состояние и параметры гостевой Wi-Fi сети
+cargo run -- guest on     # включить гостевую Wi-Fi без таймера, спросит подтверждение
+cargo run -- guest off    # выключить гостевую сеть, спросит подтверждение
 cargo run -- energy       # энергосбережение
 cargo run -- energy-profiles # доступные профили энергосбережения
 cargo run -- forwards     # список пробросов портов

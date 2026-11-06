@@ -62,8 +62,11 @@ pub enum Command {
         #[arg(value_enum)]
         level: Option<FirewallLevel>,
     },
-    /// Состояние гостевой Wi-Fi сети
-    Guest,
+    /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
+    Guest {
+        #[arg(value_enum)]
+        action: Option<GuestAction>,
+    },
     /// Энергосбережение и режим питания
     Energy,
     /// Настроенные пробросы портов
@@ -109,6 +112,12 @@ pub enum Command {
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum WifiAction {
+    On,
+    Off,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum GuestAction {
     On,
     Off,
 }

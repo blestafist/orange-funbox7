@@ -8,7 +8,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use serde_json::Value;
 
 use crate::{
-    cli::{Cli, Command, WifiAction},
+    cli::{Cli, Command, GuestAction, WifiAction},
     core::Router,
 };
 
@@ -277,6 +277,15 @@ fn show_guest(value: &Value) {
     }
 }
 
+fn show_guest_page(router: &Router) -> Result<()> {
+    let status = router.guest()?;
+    show_guest(&status);
+    let details = router.guest_networks()?;
+    println!("\nПараметры гостевой сети (ключи скрыты):");
+    println!("{}", pretty_redacted(&details)?);
+    Ok(())
+}
+
 fn normalize_mac(value: &str) -> Result<String> {
     let octets = value.split(':').collect::<Vec<_>>();
     if octets.len() != 6
@@ -428,12 +437,23 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let current = router.firewall_level()?;
             println!("Текущий уровень firewall: {current}");
         }
-        Command::Guest => {
-            let status = router.guest()?;
-            show_guest(&status);
-            let details = router.guest_networks()?;
-            println!("\nПараметры гостевой сети (ключи скрыты):");
-            println!("{}", pretty_redacted(&details)?);
+        Command::Guest { action: None } => show_guest_page(router)?,
+        Command::Guest {
+            action: Some(action),
+        } => {
+            let enabled = matches!(action, GuestAction::On);
+            let prompt = if enabled {
+                "Включить гостевую Wi-Fi без таймера отключения?"
+            } else {
+                "Выключить гостевую Wi-Fi сеть? Подключённые к ней устройства потеряют связь."
+            };
+            if !cli.yes && !confirm_action(prompt)? {
+                println!("Отменено.");
+                return Ok(());
+            }
+            router.set_guest(enabled)?;
+            println!("Команда отправлена.");
+            show_guest_page(router)?;
         }
         Command::Energy => {
             let energy = router.energy()?;
