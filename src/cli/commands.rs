@@ -649,6 +649,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
             let level = router.firewall_ipv6_level()?;
             println!("Уровень firewall для IPv6: {level}");
         }
+        Command::RemoteAccess => {
+            let status = router.remote_access_status()?;
+            println!("{}", pretty_redacted(&status)?);
+        }
         Command::Guest { action: None } => show_guest_page(router)?,
         Command::Guest {
             action: Some(action),

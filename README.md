@@ -57,6 +57,7 @@ cargo run -- upnp-forwards # динамические пробросы UPnP
 cargo run -- upnp-status # включён ли UPnP-шлюз
 cargo run -- firewall-details # DMZ, ping и пользовательские правила
 cargo run -- firewall-ipv6 # текущий уровень фильтрации IPv6
+cargo run -- remote-access # статус удалённого доступа к панели (без адресов и секретов)
 cargo run -- firewall-ping # состояние ответа на ping
 cargo run -- firewall-ping on # включить ответ на ping, спросит подтверждение
 cargo run -- dmz # показать правило DMZ
@@ -85,7 +86,7 @@ cargo run -- --host 192.168.1.1 --user admin status
 
 Клиент хранит сессионную cookie только в памяти на время запуска, отправляет `releaseContext` при завершении команды и не сохраняет пароль или токен в проекте. API этой прошивки доступен по HTTP, поэтому запускай CLI только из доверенной локальной сети.
 
-Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, управление WPS, `wan-stats` и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
+Некоторые редкие методы (`upnp-status`, `firewall-ipv6`, `remote-access`, управление WPS, `wan-stats` и другие) сверены по API соседних поколений Livebox/Funbox, но ещё не проверены на Funbox 7 `ARF7-pl-01.01.05.27`; если прошивка их не поддерживает, команда вернёт ошибку API.
 
 ## Архитектура
 

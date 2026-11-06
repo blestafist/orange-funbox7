@@ -286,6 +286,11 @@ impl Router {
             .call("Firewall", "getFirewallIPv6Level", json!({}))
     }
 
+    pub fn remote_access_status(&self) -> Result<Value> {
+        let status = self.client.call("RemoteAccess", "get", json!({}))?;
+        Ok(sanitize_remote_access_status(&status))
+    }
+
     pub fn upnp_status(&self) -> Result<Value> {
         let status = self.client.call("UPnP-IGD", "get", json!({}))?;
         Ok(sanitize_enable_status(&status))
@@ -810,14 +815,33 @@ fn sanitize_wan_stats(value: &Value) -> Value {
     )
 }
 
+fn sanitize_remote_access_status(value: &Value) -> Value {
+    let Some(fields) = value.as_object() else {
+        return Value::Null;
+    };
+
+    const ALLOWED_FIELDS: [&str; 5] = ["enable", "status", "port", "secure", "timeout"];
+    Value::Object(
+        fields
+            .iter()
+            .filter(|(key, _)| {
+                ALLOWED_FIELDS
+                    .iter()
+                    .any(|field| key.eq_ignore_ascii_case(field))
+            })
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect(),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
         find_forward, sanitize_enable_status, sanitize_leases, sanitize_open_mode_status,
-        sanitize_users, sanitize_wan_stats, validate_forward_name, validate_forward_protocol,
-        validate_lan_config, validate_lan_destination,
+        sanitize_remote_access_status, sanitize_users, sanitize_wan_stats, validate_forward_name,
+        validate_forward_protocol, validate_lan_config, validate_lan_destination,
     };
 
     #[test]
@@ -1013,6 +1037,24 @@ mod tests {
         assert_eq!(
             sanitize_wan_stats(&stats),
             serde_json::json!({ "RxBytes": 1234, "TxBytes": 5678 })
+        );
+    }
+
+    #[test]
+    fn remote_access_output_excludes_addresses_and_credentials() {
+        let status = serde_json::json!({
+            "Enable": true,
+            "Port": 443,
+            "Secure": true,
+            "Timeout": 0,
+            "SourcePrefix": "203.0.113.0/24",
+            "Username": "admin",
+            "Password": "must-not-leak"
+        });
+
+        assert_eq!(
+            sanitize_remote_access_status(&status),
+            serde_json::json!({ "Enable": true, "Port": 443, "Secure": true, "Timeout": 0 })
         );
     }
 }

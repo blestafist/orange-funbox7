@@ -94,6 +94,8 @@ pub enum Command {
     },
     /// Уровень фильтрации firewall для IPv6
     FirewallIpv6,
+    /// Статус удалённого доступа к панели
+    RemoteAccess,
     /// Состояние гостевой Wi-Fi сети; on/off управляют сетью
     Guest {
         #[arg(value_enum)]
