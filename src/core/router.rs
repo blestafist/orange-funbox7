@@ -237,6 +237,13 @@ impl Router {
             .call("DHCPv4.Server.Pool.default", "getStaticLeases", json!({}))
     }
 
+    pub fn current_leases(&self) -> Result<Value> {
+        let leases = self
+            .client
+            .call("DHCPv4.Server.Pool.default", "getLeases", json!({}))?;
+        Ok(sanitize_leases(&leases))
+    }
+
     pub fn add_lease(&self, mac: &str, ip: &str) -> Result<Value> {
         self.client.call(
             "DHCPv4.Server.Pool.default",
@@ -688,6 +695,58 @@ fn is_public_user_field(key: &str) -> bool {
         .any(|allowed| key.eq_ignore_ascii_case(allowed))
 }
 
+fn sanitize_leases(value: &Value) -> Value {
+    let mut leases = Vec::new();
+    collect_lease_records(value, &mut leases);
+    Value::Array(leases)
+}
+
+fn collect_lease_records(value: &Value, leases: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_lease_records(entry, leases);
+            }
+        }
+        Value::Object(fields) if is_lease_record(fields) => {
+            leases.push(Value::Object(
+                fields
+                    .iter()
+                    .filter(|(key, _)| is_public_lease_field(key))
+                    .map(|(key, value)| (key.clone(), value.clone()))
+                    .collect(),
+            ));
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_lease_records(entry, leases);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_lease_record(fields: &serde_json::Map<String, Value>) -> bool {
+    fields.keys().any(|key| {
+        ["IPAddress", "MACAddress", "LeasePath"]
+            .iter()
+            .any(|field| key.eq_ignore_ascii_case(field))
+    })
+}
+
+fn is_public_lease_field(key: &str) -> bool {
+    [
+        "IPAddress",
+        "MACAddress",
+        "Reserved",
+        "Active",
+        "FriendlyName",
+        "LeaseTimeRemaining",
+    ]
+    .iter()
+    .any(|allowed| key.eq_ignore_ascii_case(allowed))
+}
+
 fn sanitize_open_mode_status(value: &Value) -> Value {
     let Some(fields) = value.as_object() else {
         return Value::Null;
@@ -723,8 +782,8 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        find_forward, sanitize_enable_status, sanitize_open_mode_status, sanitize_users,
-        validate_forward_name, validate_forward_protocol, validate_lan_config,
+        find_forward, sanitize_enable_status, sanitize_leases, sanitize_open_mode_status,
+        sanitize_users, validate_forward_name, validate_forward_protocol, validate_lan_config,
         validate_lan_destination,
     };
 
@@ -882,5 +941,30 @@ mod tests {
             sanitize_enable_status(&status),
             serde_json::json!({ "Enable": true })
         );
+    }
+
+    #[test]
+    fn current_lease_output_is_flattened_and_allowlisted() {
+        let data = serde_json::json!({
+            "pool": {
+                "lease_rule": {
+                    "device_1": {
+                        "IPAddress": "192.168.1.40",
+                        "MACAddress": "AA:BB:CC:DD:EE:FF",
+                        "Reserved": false,
+                        "Active": true,
+                        "FriendlyName": "Laptop",
+                        "LeaseTimeRemaining": 300,
+                        "Password": "must-not-leak"
+                    }
+                }
+            }
+        });
+
+        let leases = sanitize_leases(&data);
+        assert_eq!(leases.as_array().unwrap().len(), 1);
+        let serialized = leases.to_string();
+        assert!(serialized.contains("192.168.1.40"));
+        assert!(!serialized.contains("must-not-leak"));
     }
 }

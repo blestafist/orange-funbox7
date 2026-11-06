@@ -76,6 +76,8 @@ pub enum Command {
     InternetDetails,
     /// Список закреплённых DHCP-адресов
     Leases,
+    /// Текущие DHCP-аренды (динамические и зарезервированные)
+    CurrentLeases,
     /// Текущий уровень firewall или задать новый
     Firewall {
         #[arg(value_enum)]

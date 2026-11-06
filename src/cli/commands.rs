@@ -274,6 +274,68 @@ fn show_leases(value: &Value) -> Result<()> {
     Ok(())
 }
 
+fn show_current_leases(value: &Value) -> Result<()> {
+    let leases = value
+        .as_array()
+        .ok_or_else(|| anyhow!("роутер вернул неожиданный формат DHCP-аренд"))?;
+    if leases.is_empty() {
+        println!("Текущих DHCP-аренд нет.");
+        return Ok(());
+    }
+
+    println!(
+        "{:<16} {:<18} {:<24} {:<9} {:<9} ОСТАЛОСЬ, сек",
+        "IP", "MAC", "ИМЯ", "АКТИВНА", "РЕЗЕРВ"
+    );
+    println!("{}", "─".repeat(100));
+    for lease in leases {
+        let remaining = lease
+            .get("LeaseTimeRemaining")
+            .map(|value| {
+                value
+                    .as_str()
+                    .map(str::to_owned)
+                    .unwrap_or_else(|| value.to_string())
+            })
+            .unwrap_or_else(|| "—".to_owned());
+        println!(
+            "{:<16} {:<18} {:<24} {:<9} {:<9} {}",
+            string_field(lease, &["IPAddress"]),
+            string_field(lease, &["MACAddress"]),
+            truncate(string_field(lease, &["FriendlyName"]), 23),
+            yes_no_field(lease.get("Active")),
+            yes_no_field(lease.get("Reserved")),
+            remaining
+        );
+    }
+    println!("\nТекущих арен: {}", leases.len());
+    Ok(())
+}
+
+fn yes_no_field(value: Option<&Value>) -> &'static str {
+    match value {
+        Some(Value::Bool(true)) => "да",
+        Some(Value::Bool(false)) => "нет",
+        Some(Value::String(value))
+            if matches!(
+                value.to_ascii_lowercase().as_str(),
+                "true" | "1" | "enabled" | "on"
+            ) =>
+        {
+            "да"
+        }
+        Some(Value::String(value))
+            if matches!(
+                value.to_ascii_lowercase().as_str(),
+                "false" | "0" | "disabled" | "off"
+            ) =>
+        {
+            "нет"
+        }
+        _ => "—",
+    }
+}
+
 fn show_guest(value: &Value) {
     for key in ["Enable", "Status"] {
         if let Some(enabled) = value.get(key).and_then(Value::as_bool) {
@@ -498,6 +560,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::Leases => {
             let leases = router.leases()?;
             show_leases(&leases)?;
+        }
+        Command::CurrentLeases => {
+            let leases = router.current_leases()?;
+            show_current_leases(&leases)?;
         }
         Command::Firewall { level: None } => {
             let level = router.firewall_level()?;

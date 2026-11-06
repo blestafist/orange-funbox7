@@ -37,6 +37,7 @@ cargo run -- lan-set 192.168.1.1 255.255.255.0 192.168.1.50 192.168.1.200 --dhcp
 cargo run -- network-details # LAN-интерфейсы и радио
 cargo run -- internet-details # WAN, IPv6, VLAN, MTU и сведения PPP (если доступны)
 cargo run -- leases       # закреплённые DHCP-адреса
+cargo run -- current-leases # текущие DHCP-аренды
 cargo run -- firewall     # уровень firewall
 cargo run -- firewall high # сменить уровень firewall, спросит подтверждение
 cargo run -- guest        # состояние и параметры гостевой Wi-Fi сети
