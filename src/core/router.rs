@@ -98,6 +98,14 @@ impl Router {
         )
     }
 
+    pub fn device(&self, mac: &str) -> Result<Value> {
+        let mac = normalize_mac_address(mac)?;
+        let devices = sanitize_device_summaries(&self.all_devices()?);
+        find_device_by_mac(&devices, &mac)
+            .cloned()
+            .ok_or_else(|| anyhow!("активное устройство с MAC-адресом {mac} не найдено"))
+    }
+
     pub fn device_history(&self) -> Result<Value> {
         self.client.call(
             "Devices",
@@ -827,6 +835,95 @@ fn sanitize_leases(value: &Value) -> Value {
     Value::Array(leases)
 }
 
+fn sanitize_device_summaries(value: &Value) -> Value {
+    let mut devices = Vec::new();
+    collect_device_summaries(value, &mut devices);
+    Value::Array(devices)
+}
+
+fn collect_device_summaries(value: &Value, devices: &mut Vec<Value>) {
+    match value {
+        Value::Array(entries) => {
+            for entry in entries {
+                collect_device_summaries(entry, devices);
+            }
+        }
+        Value::Object(fields) if is_device_summary(fields) => {
+            let mut summary = serde_json::Map::new();
+            for (key, value) in fields {
+                if is_public_device_field(key) {
+                    summary.insert(key.clone(), value.clone());
+                } else if key.eq_ignore_ascii_case("BDD")
+                    && let Some(name) = value
+                        .as_object()
+                        .and_then(|fields| field_value_case_insensitive(fields, &["DeviceName"]))
+                {
+                    summary.insert("DeviceName".to_owned(), name.clone());
+                }
+            }
+            devices.push(Value::Object(summary));
+        }
+        Value::Object(fields) => {
+            for entry in fields.values() {
+                collect_device_summaries(entry, devices);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn is_device_summary(fields: &serde_json::Map<String, Value>) -> bool {
+    ["PhysAddress", "MACAddress", "IPAddress"]
+        .iter()
+        .any(|key| {
+            fields
+                .keys()
+                .any(|candidate| candidate.eq_ignore_ascii_case(key))
+        })
+}
+
+fn is_public_device_field(key: &str) -> bool {
+    [
+        "Name",
+        "PhysAddress",
+        "MACAddress",
+        "IPAddress",
+        "InterfaceName",
+        "Layer2Interface",
+        "DeviceType",
+        "DeviceCategory",
+        "Active",
+    ]
+    .iter()
+    .any(|allowed| key.eq_ignore_ascii_case(allowed))
+}
+
+fn field_value_case_insensitive<'a>(
+    fields: &'a serde_json::Map<String, Value>,
+    names: &[&str],
+) -> Option<&'a Value> {
+    fields.iter().find_map(|(key, value)| {
+        names
+            .iter()
+            .any(|name| key.eq_ignore_ascii_case(name))
+            .then_some(value)
+    })
+}
+
+fn field_string_case_insensitive<'a>(value: &'a Value, names: &[&str]) -> Option<&'a str> {
+    value
+        .as_object()
+        .and_then(|fields| field_value_case_insensitive(fields, names))
+        .and_then(Value::as_str)
+}
+
+fn find_device_by_mac<'a>(devices: &'a Value, mac: &str) -> Option<&'a Value> {
+    devices.as_array()?.iter().find(|device| {
+        field_string_case_insensitive(device, &["PhysAddress", "MACAddress"])
+            .is_some_and(|address| address.eq_ignore_ascii_case(mac))
+    })
+}
+
 fn collect_lease_records(value: &Value, leases: &mut Vec<Value>) {
     match value {
         Value::Array(entries) => {
@@ -1068,10 +1165,11 @@ mod tests {
     use std::net::Ipv4Addr;
 
     use super::{
-        filter_blocked_schedules, find_device_schedule, find_forward, normalize_mac_address,
-        sanitize_backup_status, sanitize_device_schedules, sanitize_enable_status, sanitize_leases,
-        sanitize_ntp_servers, sanitize_open_mode_status, sanitize_remote_access_status,
-        sanitize_users, sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
+        filter_blocked_schedules, find_device_by_mac, find_device_schedule, find_forward,
+        normalize_mac_address, sanitize_backup_status, sanitize_device_schedules,
+        sanitize_device_summaries, sanitize_enable_status, sanitize_leases, sanitize_ntp_servers,
+        sanitize_open_mode_status, sanitize_remote_access_status, sanitize_users,
+        sanitize_wan_stats, validate_dhcp_lease_time, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
     };
 
@@ -1335,6 +1433,36 @@ mod tests {
         );
         assert!(normalize_mac_address("01:00:5E:00:00:01").is_err());
         assert!(normalize_mac_address("invalid").is_err());
+    }
+
+    #[test]
+    fn device_lookup_flattens_grouped_results_and_filters_secrets() {
+        let grouped = serde_json::json!({
+            "wifi": {
+                "entry-1": {
+                    "PhysAddress": "AA:BB:CC:DD:EE:FF",
+                    "IPAddress": "192.168.1.42",
+                    "Name": "tablet",
+                    "InterfaceName": "vap5g0priv",
+                    "Active": true,
+                    "BDD": { "DeviceName": "Tablet" },
+                    "Password": "must-not-leak"
+                }
+            },
+            "usb": [{
+                "MACAddress": "11:22:33:44:55:66",
+                "IPAddress": "192.168.1.43",
+                "Secret": "also-must-not-leak"
+            }]
+        });
+
+        let devices = sanitize_device_summaries(&grouped);
+        assert_eq!(devices.as_array().unwrap().len(), 2);
+        let found = find_device_by_mac(&devices, "aa:bb:cc:dd:ee:ff").unwrap();
+        assert_eq!(found["IPAddress"], "192.168.1.42");
+        assert_eq!(found["DeviceName"], "Tablet");
+        assert!(!devices.to_string().contains("must-not-leak"));
+        assert!(find_device_by_mac(&devices, "FF:FF:FF:FF:FF:FF").is_none());
     }
 
     #[test]

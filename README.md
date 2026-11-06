@@ -37,6 +37,7 @@ cargo run -- television   # статус IPTV и конфигурация кан
 cargo run -- voice        # настройки телефонии с маскировкой паролей
 cargo run -- devices      # таблица активных DHCP-устройств
 cargo run -- all-devices  # Wi-Fi, Ethernet, USB и DECT
+cargo run -- device AA:BB:CC:DD:EE:FF # карточка активного устройства по MAC
 cargo run -- device-history # ранее подключавшиеся устройства
 cargo run -- networks     # точки доступа и подключённые Wi-Fi-клиенты
 cargo run -- lan          # LAN-адрес и DHCP

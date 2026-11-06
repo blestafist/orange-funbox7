@@ -180,6 +180,26 @@ fn show_devices(value: &Value, summary: &str) -> Result<()> {
     Ok(())
 }
 
+fn show_device(value: &Value) {
+    println!("Имя: {}", string_field(value, &["Name", "DeviceName"]));
+    println!("IP: {}", string_field(value, &["IPAddress"]));
+    println!(
+        "MAC: {}",
+        string_field(value, &["PhysAddress", "MACAddress"])
+    );
+    println!(
+        "Тип: {}",
+        string_field(value, &["DeviceType", "DeviceCategory"])
+    );
+    println!(
+        "Подключение: {}",
+        string_field(value, &["InterfaceName", "Layer2Interface"])
+    );
+    if let Some(active) = value.get("Active") {
+        println!("Активно: {}", yes_no_field(Some(active)));
+    }
+}
+
 fn collect_device_records<'a>(value: &'a Value, records: &mut Vec<&'a Value>) {
     match value {
         Value::Array(entries) => {
@@ -556,6 +576,10 @@ pub fn execute(cli: &Cli, router: &Router) -> Result<()> {
         Command::AllDevices => {
             let devices = router.all_devices()?;
             show_devices(&devices, "Устройств из всех доступных категорий")?;
+        }
+        Command::Device { mac } => {
+            let mac = normalize_mac(mac)?;
+            show_device(&router.device(&mac)?);
         }
         Command::DeviceHistory => {
             let devices = router.device_history()?;

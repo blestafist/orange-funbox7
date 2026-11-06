@@ -58,6 +58,8 @@ pub enum Command {
     Devices,
     /// Сводный список устройств Wi-Fi, Ethernet, USB и DECT
     AllDevices,
+    /// Найти активное устройство по MAC-адресу
+    Device { mac: String },
     /// Устройства, ранее подключавшиеся к роутеру
     DeviceHistory,
     /// SSID, состояние точек доступа и подключённые Wi-Fi-клиенты
