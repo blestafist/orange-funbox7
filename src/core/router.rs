@@ -707,7 +707,6 @@ impl Router {
         protocol: &str,
     ) -> Result<()> {
         Self::validate_ipv6_pinhole(name, destination, mac, port, protocol)?;
-        let mac = normalize_mac_address(mac)?;
 
         let existing = self.ipv6_pinholes()?;
         if find_pinhole(&existing, name)?.is_some() {
@@ -715,24 +714,11 @@ impl Router {
         }
 
         let response = self.client.call(
-            "Firewall",
-            "setPinhole",
-            json!({
-                "id": name,
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePort": "",
-                "destinationPort": port.to_string(),
-                "destinationIPAddress": destination.to_string(),
-                "destinationMACAddress": mac,
-                "sourcePrefix": "",
-                "protocol": protocol,
-                "ipversion": 6,
-                "enable": true,
-                "persistent": true
-            }),
+            "sah.HomeNetwork.Firewall.Pinhole",
+            "addPinhole",
+            ipv6_pinhole_add_parameters(name, destination, port, protocol)?,
         )?;
-        ensure_mutation_succeeded(&response, "Firewall.setPinhole")?;
+        ensure_mutation_succeeded(&response, "Firewall.Pinhole.addPinhole")?;
         Ok(())
     }
 
@@ -760,10 +746,12 @@ impl Router {
             .ok_or_else(|| anyhow!("IPv6 rule named {name:?} was not found"))?;
         let id = field_string(entry, &["id", "Id", "ID"])
             .ok_or_else(|| anyhow!("IPv6 rule has no identifier"))?;
-        let response = self
-            .client
-            .call("Firewall", "deletePinhole", json!({ "id": id }))?;
-        ensure_mutation_succeeded(&response, "Firewall.deletePinhole")?;
+        let response = self.client.call(
+            "sah.HomeNetwork.Firewall.Pinhole",
+            "deletePinhole",
+            ipv6_pinhole_delete_parameters(&id),
+        )?;
+        ensure_mutation_succeeded(&response, "Firewall.Pinhole.deletePinhole")?;
         Ok(())
     }
 
@@ -1395,6 +1383,34 @@ fn forward_delete_parameters(name: &str, protocol: &str) -> Result<Value> {
     }))
 }
 
+fn web_ui_pinhole_protocol(protocol: &str) -> Result<&'static str> {
+    match protocol {
+        "6" | "tcp" => Ok("tcp"),
+        "17" | "udp" => Ok("udp"),
+        _ => bail!("IPv6 pinhole supports only TCP or UDP"),
+    }
+}
+
+fn ipv6_pinhole_add_parameters(
+    name: &str,
+    destination: Ipv6Addr,
+    port: u16,
+    protocol: &str,
+) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "isEnabled": true,
+        "protocol": web_ui_pinhole_protocol(protocol)?,
+        "destinationPort": port.to_string(),
+        "destinationIPAddress": destination.to_string(),
+        "externalIp": ""
+    }))
+}
+
+fn ipv6_pinhole_delete_parameters(id: &str) -> Value {
+    json!({ "name": id })
+}
+
 fn dmz_parameters(destination: Option<Ipv4Addr>) -> Value {
     match destination {
         Some(destination) => json!({
@@ -1478,6 +1494,37 @@ mod webui_parameter_tests {
         assert_eq!(
             forward_delete_parameters("web", "tcp").unwrap(),
             json!({ "name": "web", "protocol": "tcp" })
+        );
+    }
+
+    #[test]
+    fn ipv6_pinhole_add_matches_web_ui_shape() {
+        let destination: Ipv6Addr = "2001:db8::25".parse().unwrap();
+        assert_eq!(
+            ipv6_pinhole_add_parameters("web", destination, 443, "6").unwrap(),
+            json!({
+                "name": "web",
+                "isEnabled": true,
+                "protocol": "tcp",
+                "destinationPort": "443",
+                "destinationIPAddress": "2001:db8::25",
+                "externalIp": ""
+            })
+        );
+        assert_eq!(
+            ipv6_pinhole_add_parameters("dns", destination, 53, "17")
+                .unwrap()
+                .get("protocol"),
+            Some(&json!("udp"))
+        );
+        assert!(ipv6_pinhole_add_parameters("web", destination, 443, "1").is_err());
+    }
+
+    #[test]
+    fn ipv6_pinhole_delete_sends_rule_name() {
+        assert_eq!(
+            ipv6_pinhole_delete_parameters("web"),
+            json!({ "name": "web" })
         );
     }
 
