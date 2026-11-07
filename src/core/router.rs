@@ -91,16 +91,11 @@ impl Router {
             bail!("DynDNS host {hostname:?} is already configured");
         }
         let response = self.client.call_sensitive(
-            "DynDNS",
-            "addHost",
-            json!({
-                "service": service,
-                "hostname": hostname,
-                "username": username,
-                "password": password
-            }),
+            "sah.HomeNetwork.DynDns",
+            "addUserAccount",
+            dynamic_dns_add_parameters(service, hostname, username, password),
         )?;
-        ensure_mutation_succeeded(&response, "DynDNS.addHost")
+        ensure_mutation_succeeded(&response, "DynDNS.addUserAccount")
     }
 
     pub fn remove_dynamic_dns_host(&self, hostname: &str) -> Result<()> {
@@ -108,10 +103,12 @@ impl Router {
         if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_none() {
             bail!("DynDNS host {hostname:?} was not found");
         }
-        let response = self
-            .client
-            .call("DynDNS", "delHost", json!({ "hostname": hostname }))?;
-        ensure_mutation_succeeded(&response, "DynDNS.delHost")
+        let response = self.client.call(
+            "sah.HomeNetwork.DynDns",
+            "deleteUserAccount",
+            dynamic_dns_delete_parameters(hostname),
+        )?;
+        ensure_mutation_succeeded(&response, "DynDNS.deleteUserAccount")
     }
 
     pub fn validate_dynamic_dns_config(
@@ -512,7 +509,11 @@ impl Router {
     }
 
     pub fn disable_remote_access(&self) -> Result<Value> {
-        self.client.call("RemoteAccess", "disable", json!({}))
+        self.client.call(
+            "sah.Connection.Server.RemoteAccess",
+            "deactivate",
+            json!({}),
+        )
     }
 
     pub fn upnp_status(&self) -> Result<Value> {
@@ -522,9 +523,9 @@ impl Router {
 
     pub fn set_upnp_enabled(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "UPnP-IGD",
-            "set",
-            json!({ "parameters": { "Enable": enabled } }),
+            "sah.HomeNetwork.UpnpServer",
+            "setCurrentState",
+            json!({ "isUpnpRulesEnabled": enabled }),
         )
     }
 
@@ -538,21 +539,18 @@ impl Router {
 
     pub fn set_firewall_ping_response(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "Firewall",
-            "setRespondToPing",
-            json!({
-                "sourceInterface": "data",
-                "service_enable": {
-                    "enableIPv4": enabled,
-                    "enableIPv6": enabled
-                }
-            }),
+            "sah.HomeNetwork.Firewall.Ping",
+            "setRespondToPingState",
+            firewall_ping_parameters(enabled),
         )
     }
 
     pub fn set_firewall_level(&self, level: &str) -> Result<Value> {
-        self.client
-            .call("Firewall", "setFirewallLevel", json!({ "level": level }))
+        self.client.call(
+            "sah.HomeNetwork.Firewall.Level",
+            "setLevel",
+            firewall_level_parameters(level),
+        )
     }
 
     pub fn guest(&self) -> Result<Value> {
@@ -667,23 +665,10 @@ impl Router {
         }
 
         self.client.call(
-            "Firewall",
-            "setPortForwarding",
-            json!({
-                "description": name,
-                "persistent": true,
-                "enable": true,
-                "protocol": protocol,
-                "destinationIPAddress": destination_ip.to_string(),
-                "internalPort": internal_port.to_string(),
-                "externalPort": external_port.to_string(),
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePrefix": "",
-                "id": name
-            }),
+            "sah.HomeNetwork.Firewall.NatPatIpv4",
+            "addRule",
+            forward_add_parameters(name, destination_ip, external_port, internal_port, protocol)?,
         )?;
-        self.client.call("Firewall", "commit", json!({}))?;
         Ok(())
     }
 
@@ -694,29 +679,12 @@ impl Router {
             .ok_or_else(|| anyhow!("Port forward named {name:?} was not found"))?;
         let protocol = field_string(entry, &["Protocol", "protocol"])
             .ok_or_else(|| anyhow!("Port forward entry has no protocol"))?;
-        let internal_port = field_string(entry, &["InternalPort", "internalPort"])
-            .ok_or_else(|| anyhow!("Port forward entry has no internal port"))?;
-        let external_port = field_string(entry, &["ExternalPort", "externalPort"])
-            .ok_or_else(|| anyhow!("Port forward entry has no external port"))?;
 
         self.client.call(
-            "Firewall",
-            "setPortForwarding",
-            json!({
-                "description": name,
-                "persistent": true,
-                "enable": false,
-                "protocol": protocol,
-                "destinationIPAddress": "0.0.0.0",
-                "internalPort": internal_port,
-                "externalPort": external_port,
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePrefix": "",
-                "id": name
-            }),
+            "sah.HomeNetwork.Firewall.NatPatIpv4",
+            "deleteRule",
+            forward_delete_parameters(name, &protocol)?,
         )?;
-        self.client.call("Firewall", "commit", json!({}))?;
         Ok(())
     }
 
@@ -845,20 +813,18 @@ impl Router {
             bail!("DMZ is already configured; clear the existing rule first");
         }
         self.client.call(
-            "Firewall",
-            "setDMZ",
-            json!({
-                "id": "webui",
-                "sourceInterface": "data",
-                "destinationIPAddress": destination.to_string(),
-                "enable": true
-            }),
+            "sah.HomeNetwork.Firewall.DmzIpv4",
+            "setCurrentState",
+            dmz_parameters(Some(destination)),
         )
     }
 
     pub fn clear_dmz(&self) -> Result<Value> {
-        self.client
-            .call("Firewall", "deleteDMZ", json!({ "id": "webui" }))
+        self.client.call(
+            "sah.HomeNetwork.Firewall.DmzIpv4",
+            "setCurrentState",
+            dmz_parameters(None),
+        )
     }
 
     pub fn ipv6(&self) -> Result<Value> {
@@ -876,7 +842,7 @@ impl Router {
     pub fn set_timezone(&self, timezone: &str) -> Result<Value> {
         validate_timezone(timezone)?;
         self.client.call(
-            "Time",
+            "sah.Device.Time",
             "setLocalTimeZoneName",
             json!({ "timezone": timezone }),
         )
@@ -897,7 +863,11 @@ impl Router {
     }
 
     pub fn reboot(&self) -> Result<Value> {
-        self.client.call("NMC", "reboot", json!({}))
+        self.client.call(
+            "sah.Device.System",
+            "reboot",
+            json!({ "reason": "GUI_Reboot" }),
+        )
     }
 }
 
@@ -1366,6 +1336,164 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
 
 fn wifi_activation_parameters(enabled: bool) -> Value {
     json!({ "isActivated": enabled })
+}
+
+fn firewall_level_parameters(level: &str) -> Value {
+    json!({ "ipVersion": "0", "level": level })
+}
+
+fn firewall_ping_parameters(enabled: bool) -> Value {
+    json!({ "isEnabledIPv4": enabled, "isEnabledIPv6": enabled })
+}
+
+fn dynamic_dns_add_parameters(
+    service: &str,
+    hostname: &str,
+    username: &str,
+    password: &str,
+) -> Value {
+    json!({
+        "service": service,
+        "hostname": hostname,
+        "login": username,
+        "password": password
+    })
+}
+
+fn dynamic_dns_delete_parameters(hostname: &str) -> Value {
+    json!(hostname)
+}
+
+fn web_ui_forward_protocol(protocol: &str) -> Result<&'static str> {
+    match protocol {
+        "6" | "tcp" => Ok("tcp"),
+        "17" | "udp" => Ok("udp"),
+        "6,17" | "tcp,udp" => Ok("tcp,udp"),
+        _ => bail!("Protocol must be TCP, UDP, or both"),
+    }
+}
+
+fn forward_add_parameters(
+    name: &str,
+    destination: Ipv4Addr,
+    external_port: u16,
+    internal_port: u16,
+    protocol: &str,
+) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "isEnabled": true,
+        "protocol": web_ui_forward_protocol(protocol)?,
+        "externalPortRange": external_port.to_string(),
+        "internalPortRange": internal_port.to_string(),
+        "ipAddress": destination.to_string(),
+        "sourcePrefix": "",
+        "destinationMACAddress": ""
+    }))
+}
+
+fn forward_delete_parameters(name: &str, protocol: &str) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "protocol": web_ui_forward_protocol(protocol)?
+    }))
+}
+
+fn dmz_parameters(destination: Option<Ipv4Addr>) -> Value {
+    match destination {
+        Some(destination) => json!({
+            "isDmzEnabled": true,
+            "ipAddress": destination.to_string()
+        }),
+        None => json!({ "isDmzEnabled": false }),
+    }
+}
+
+#[cfg(test)]
+mod webui_parameter_tests {
+    use super::*;
+
+    #[test]
+    fn firewall_level_matches_web_ui_shape() {
+        assert_eq!(
+            firewall_level_parameters("Medium"),
+            json!({ "ipVersion": "0", "level": "Medium" })
+        );
+    }
+
+    #[test]
+    fn firewall_ping_sets_both_ip_versions() {
+        assert_eq!(
+            firewall_ping_parameters(true),
+            json!({ "isEnabledIPv4": true, "isEnabledIPv6": true })
+        );
+        assert_eq!(
+            firewall_ping_parameters(false),
+            json!({ "isEnabledIPv4": false, "isEnabledIPv6": false })
+        );
+    }
+
+    #[test]
+    fn forward_add_matches_web_ui_nat_shape() {
+        let destination: Ipv4Addr = "192.168.1.25".parse().unwrap();
+        assert_eq!(
+            forward_add_parameters("web", destination, 8080, 80, "6,17").unwrap(),
+            json!({
+                "name": "web",
+                "isEnabled": true,
+                "protocol": "tcp,udp",
+                "externalPortRange": "8080",
+                "internalPortRange": "80",
+                "ipAddress": "192.168.1.25",
+                "sourcePrefix": "",
+                "destinationMACAddress": ""
+            })
+        );
+        assert!(forward_add_parameters("web", destination, 80, 80, "1").is_err());
+    }
+
+    #[test]
+    fn dynamic_dns_add_uses_login_field_name() {
+        assert_eq!(
+            dynamic_dns_add_parameters("dyndns.org", "host.example.com", "user", "secret"),
+            json!({
+                "service": "dyndns.org",
+                "hostname": "host.example.com",
+                "login": "user",
+                "password": "secret"
+            })
+        );
+    }
+
+    #[test]
+    fn dynamic_dns_delete_sends_hostname_string() {
+        assert_eq!(
+            dynamic_dns_delete_parameters("host.example.com"),
+            json!("host.example.com")
+        );
+    }
+
+    #[test]
+    fn forward_delete_uses_web_ui_protocol_names() {
+        assert_eq!(
+            forward_delete_parameters("web", "17").unwrap(),
+            json!({ "name": "web", "protocol": "udp" })
+        );
+        assert_eq!(
+            forward_delete_parameters("web", "tcp").unwrap(),
+            json!({ "name": "web", "protocol": "tcp" })
+        );
+    }
+
+    #[test]
+    fn dmz_parameters_enable_or_disable_the_rule() {
+        let destination: Ipv4Addr = "192.168.1.25".parse().unwrap();
+        assert_eq!(
+            dmz_parameters(Some(destination)),
+            json!({ "isDmzEnabled": true, "ipAddress": "192.168.1.25" })
+        );
+        assert_eq!(dmz_parameters(None), json!({ "isDmzEnabled": false }));
+    }
 }
 
 fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
