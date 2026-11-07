@@ -1437,15 +1437,26 @@ fn dhcp_ipv4_configuration_with_lease_time(current: &Value, seconds: u32) -> Res
     Ok(Value::Object(configuration))
 }
 
+/// The web UI reads `deviceId` from the top level of each entry, while the MAC
+/// address sits inside a nested object whose key varies per interface.
 fn find_device_id_by_mac(device_list: &Value, mac: &str) -> Option<String> {
     device_list.as_array()?.iter().find_map(|device| {
-        let address =
-            field_string_case_insensitive(device, &["PhysAddress", "MACAddress", "macAddress"])?;
-        if !address.eq_ignore_ascii_case(mac) {
+        let matches = field_string_case_insensitive(device, &["PhysAddress", "MACAddress"])
+            .or_else(|| nested_mac_address(device))
+            .is_some_and(|address| address.eq_ignore_ascii_case(mac));
+        if !matches {
             return None;
         }
-        field_string(device, &["key", "deviceId"]).map(|id| id.to_ascii_uppercase())
+        field_string(device, &["deviceId"]).map(|id| id.to_ascii_uppercase())
     })
+}
+
+fn nested_mac_address(device: &Value) -> Option<&str> {
+    device
+        .as_object()?
+        .values()
+        .filter_map(|nested| nested.get("macAddress").and_then(Value::as_str))
+        .next()
 }
 
 fn static_lease_parameters(device_id: &str, ip: &str) -> Value {
@@ -1567,8 +1578,8 @@ mod webui_parameter_tests {
     #[test]
     fn static_lease_uses_uppercase_device_id_from_matching_mac() {
         let devices = json!([
-            { "key": "eth-1", "PhysAddress": "aa:bb:cc:dd:ee:01" },
-            { "key": "wifi-2", "PhysAddress": "AA:BB:CC:DD:EE:02" }
+            { "deviceId": "eth-1", "PhysAddress": "aa:bb:cc:dd:ee:01" },
+            { "deviceId": "wifi-2", "PhysAddress": "AA:BB:CC:DD:EE:02" }
         ]);
         assert_eq!(
             find_device_id_by_mac(&devices, "aa:bb:cc:dd:ee:02"),
@@ -3123,5 +3134,25 @@ mod tests {
             sanitize_backup_status(&status),
             serde_json::json!({ "ConfigDate": "2026-10-31T12:00:00Z" })
         );
+    }
+}
+
+#[cfg(test)]
+mod device_lookup_tests {
+    use super::find_device_id_by_mac;
+
+    #[test]
+    fn finds_device_id_by_nested_mac_like_web_ui() {
+        let list = serde_json::json!([
+            { "deviceId": "abc-1", "deviceName": "x",
+              "ethernet": { "macAddress": "AA:BB:CC:DD:EE:01", "ipIpv4": "192.0.2.10" } },
+            { "deviceId": "def-2", "deviceName": "y",
+              "wifi": { "macAddress": "AA:BB:CC:DD:EE:02" } }
+        ]);
+        assert_eq!(
+            find_device_id_by_mac(&list, "aa:bb:cc:dd:ee:02").as_deref(),
+            Some("DEF-2")
+        );
+        assert_eq!(find_device_id_by_mac(&list, "00:00:00:00:00:00"), None);
     }
 }
