@@ -471,19 +471,35 @@ impl Router {
     }
 
     pub fn add_lease(&self, mac: &str, ip: &str) -> Result<Value> {
+        let device_id = self.device_id_for_mac(mac)?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
+            "sah.HomeNetwork.DhcpServerIpv4",
             "addStaticLease",
-            json!({ "MACAddress": mac, "IPAddress": ip }),
+            static_lease_parameters(&device_id, ip),
         )
     }
 
     pub fn remove_lease(&self, mac: &str) -> Result<Value> {
+        let device_id = self.device_id_for_mac(mac)?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
+            "sah.HomeNetwork.DhcpServerIpv4",
             "deleteStaticLease",
-            json!({ "MACAddress": mac }),
+            static_lease_delete_parameters(&device_id),
         )
+    }
+
+    fn device_id_for_mac(&self, mac: &str) -> Result<String> {
+        let mac = normalize_mac_address(mac)?;
+        let devices = self.client.call(
+            "sah.HomeNetwork.NetworkMap",
+            "fastListDevices",
+            json!({ "expression": "not interface and not self and (eth or wifi)" }),
+        )?;
+        let device_list = devices
+            .get("deviceList")
+            .ok_or_else(|| anyhow!("Router returned an unexpected device list format"))?;
+        find_device_id_by_mac(device_list, &mac)
+            .ok_or_else(|| anyhow!("Device with MAC address {mac} was not found on the network"))
     }
 
     pub fn firewall_level(&self) -> Result<Value> {
@@ -1407,6 +1423,25 @@ fn ipv6_pinhole_add_parameters(
     }))
 }
 
+fn find_device_id_by_mac(device_list: &Value, mac: &str) -> Option<String> {
+    device_list.as_array()?.iter().find_map(|device| {
+        let address =
+            field_string_case_insensitive(device, &["PhysAddress", "MACAddress", "macAddress"])?;
+        if !address.eq_ignore_ascii_case(mac) {
+            return None;
+        }
+        field_string(device, &["key", "deviceId"]).map(|id| id.to_ascii_uppercase())
+    })
+}
+
+fn static_lease_parameters(device_id: &str, ip: &str) -> Value {
+    json!({ "deviceId": device_id, "ipAddress": ip })
+}
+
+fn static_lease_delete_parameters(device_id: &str) -> Value {
+    json!({ "deviceId": device_id })
+}
+
 fn ipv6_pinhole_delete_parameters(id: &str) -> Value {
     json!({ "name": id })
 }
@@ -1494,6 +1529,27 @@ mod webui_parameter_tests {
         assert_eq!(
             forward_delete_parameters("web", "tcp").unwrap(),
             json!({ "name": "web", "protocol": "tcp" })
+        );
+    }
+
+    #[test]
+    fn static_lease_uses_uppercase_device_id_from_matching_mac() {
+        let devices = json!([
+            { "key": "eth-1", "PhysAddress": "aa:bb:cc:dd:ee:01" },
+            { "key": "wifi-2", "PhysAddress": "AA:BB:CC:DD:EE:02" }
+        ]);
+        assert_eq!(
+            find_device_id_by_mac(&devices, "aa:bb:cc:dd:ee:02"),
+            Some("WIFI-2".to_owned())
+        );
+        assert_eq!(find_device_id_by_mac(&devices, "aa:bb:cc:dd:ee:99"), None);
+        assert_eq!(
+            static_lease_parameters("WIFI-2", "192.168.1.50"),
+            json!({ "deviceId": "WIFI-2", "ipAddress": "192.168.1.50" })
+        );
+        assert_eq!(
+            static_lease_delete_parameters("WIFI-2"),
+            json!({ "deviceId": "WIFI-2" })
         );
     }
 
@@ -2312,7 +2368,6 @@ mod tests {
         Router, ensure_mutation_succeeded, filter_blocked_schedules, find_device_by_mac,
         find_device_schedule, find_dynamic_dns_host, find_forward, find_pinhole,
         normalize_mac_address, sanitize_admin_password_state, sanitize_backup_status,
-        wifi_activation_parameters,
         sanitize_dashboard_power_schedules, sanitize_dashboard_settings, sanitize_device_schedules,
         sanitize_device_summaries, sanitize_dynamic_dns_hosts, sanitize_enable_status,
         sanitize_interface_language, sanitize_internet_dashboard_state, sanitize_leases,
@@ -2323,6 +2378,7 @@ mod tests {
         validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
         validate_pinhole_destination, validate_pinhole_protocol, validate_timezone,
+        wifi_activation_parameters,
     };
 
     #[test]
