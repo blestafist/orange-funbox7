@@ -1275,6 +1275,8 @@ fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
     let raw = value
         .get("passwordstate")
         .ok_or_else(|| anyhow!("Router returned an unexpected administrator password status"))?;
+    // The firmware may report a numeric code instead of the strings used by the
+    // web UI. Its meaning is not documented, so it is reported as unknown.
     let state = match raw.as_str() {
         Some(state @ ("notSet" | "factoryDefault")) => state,
         _ => "unknown",
