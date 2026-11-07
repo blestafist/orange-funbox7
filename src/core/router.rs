@@ -174,15 +174,18 @@ impl Router {
 
     pub fn set_wifi(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "NMC.Wifi",
-            "set",
-            json!({ "Enable": enabled, "Status": enabled }),
+            "sah.Connection.Server.WiFi",
+            "setActivationState",
+            wifi_activation_parameters(enabled),
         )
     }
 
-    pub fn set_wps(&self, enabled: bool) -> Result<Value> {
-        self.client
-            .call("NMC.Wifi", "setWPSEnable", json!({ "enable": enabled }))
+    /// Unsupported: the web UI capture and bundle show no WPS enable/disable
+    /// write (only pairing start/stop calls), so WPS state cannot be changed.
+    pub fn set_wps(&self, _enabled: bool) -> Result<Value> {
+        bail!(
+            "WPS on/off is not supported on this firmware: the web UI has no verified WPS enable/disable call"
+        )
     }
 
     pub fn wifi_open_mode(&self) -> Result<Value> {
@@ -297,47 +300,22 @@ impl Router {
         Ok(filter_blocked_schedules(&self.device_schedules()?))
     }
 
+    /// Unsupported: the web UI writes device restrictions through
+    /// `NetworkMap.setDeviceSchedule` keyed by an internal device ID, not the
+    /// `Scheduler` ToD calls this CLI used, so the write is not verified here.
     pub fn block_device(&self, mac: &str) -> Result<()> {
-        let mac = normalize_mac_address(mac)?;
-        let schedules = self.device_schedules()?;
-        if find_device_schedule(&schedules, &mac).is_some() {
-            self.client.call(
-                "Scheduler",
-                "overrideSchedule",
-                json!({ "type": "ToD", "ID": mac, "override": "Disable" }),
-            )?;
-        } else {
-            self.client.call(
-                "Scheduler",
-                "addSchedule",
-                json!({
-                    "type": "ToD",
-                    "info": {
-                        "ID": mac,
-                        "base": "Weekly",
-                        "def": "Enable",
-                        "schedule": [],
-                        "enable": true,
-                        "override": "Disable"
-                    }
-                }),
-            )?;
-        }
-        Ok(())
+        normalize_mac_address(mac)?;
+        bail!(
+            "block-device is not supported on this firmware: the web UI device restriction call is not verified here"
+        )
     }
 
+    /// Unsupported for the same reason as `block_device`.
     pub fn unblock_device(&self, mac: &str) -> Result<()> {
-        let mac = normalize_mac_address(mac)?;
-        let schedules = self.device_schedules()?;
-        if find_device_schedule(&schedules, &mac).is_none() {
-            bail!("No access restriction schedule exists for device {mac}");
-        }
-        self.client.call(
-            "Scheduler",
-            "overrideSchedule",
-            json!({ "type": "ToD", "ID": mac, "override": "Enable" }),
-        )?;
-        Ok(())
+        normalize_mac_address(mac)?;
+        bail!(
+            "unblock-device is not supported on this firmware: the web UI device restriction call is not verified here"
+        )
     }
 
     fn device_schedules(&self) -> Result<Value> {
@@ -559,20 +537,12 @@ impl Router {
         self.client.call("NMC.Guest", "get", json!({}))
     }
 
-    pub fn set_guest(&self, enabled: bool) -> Result<Value> {
-        if enabled {
-            self.client.call(
-                "NMC.WlanTimer",
-                "setActivationTimer",
-                json!({ "InterfaceName": "guest", "Timeout": 0 }),
-            )
-        } else {
-            self.client.call(
-                "NMC.WlanTimer",
-                "disableActivationTimer",
-                json!({ "InterfaceName": "guest" }),
-            )
-        }
+    /// Unsupported: the web UI toggles guest Wi-Fi through `configureWLANManager`
+    /// with a per-access-point ID that this CLI does not resolve yet.
+    pub fn set_guest(&self, _enabled: bool) -> Result<Value> {
+        bail!(
+            "guest Wi-Fi on/off is not supported on this firmware: the web UI write call needs an access point ID that is not verified here"
+        )
     }
 
     pub fn guest_networks(&self) -> Result<Value> {
@@ -1364,6 +1334,10 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
     Ok(Value::Object(result))
 }
 
+fn wifi_activation_parameters(enabled: bool) -> Value {
+    json!({ "isActivated": enabled })
+}
+
 fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
     let base = value
         .get("base")
@@ -2099,6 +2073,7 @@ fn is_blocked_schedule(schedule: &Value) -> bool {
     }) == Some("Disable")
 }
 
+#[cfg_attr(not(test), allow(dead_code))]
 fn find_device_schedule<'a>(schedules: &'a Value, mac: &str) -> Option<&'a Value> {
     schedules.as_array()?.iter().find(|schedule| {
         schedule
@@ -2137,6 +2112,7 @@ mod tests {
         Router, ensure_mutation_succeeded, filter_blocked_schedules, find_device_by_mac,
         find_device_schedule, find_dynamic_dns_host, find_forward, find_pinhole,
         normalize_mac_address, sanitize_admin_password_state, sanitize_backup_status,
+        wifi_activation_parameters,
         sanitize_dashboard_power_schedules, sanitize_dashboard_settings, sanitize_device_schedules,
         sanitize_device_summaries, sanitize_dynamic_dns_hosts, sanitize_enable_status,
         sanitize_interface_language, sanitize_internet_dashboard_state, sanitize_leases,
@@ -2744,6 +2720,18 @@ mod tests {
                 .is_err()
         );
         assert!(sanitize_television_dashboard_state(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn wifi_activation_body_matches_web_ui_parameter() {
+        assert_eq!(
+            wifi_activation_parameters(true),
+            serde_json::json!({ "isActivated": true })
+        );
+        assert_eq!(
+            wifi_activation_parameters(false),
+            serde_json::json!({ "isActivated": false })
+        );
     }
 
     #[test]
