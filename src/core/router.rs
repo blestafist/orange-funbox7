@@ -23,42 +23,33 @@ impl Router {
 
     pub fn dashboard_settings(&self) -> Result<Value> {
         let settings = self.client.call(
-            "sah.Mhs",
-            "retrieveCategories",
+            "Manifests",
+            "retrieve",
             json!({ "user": "admin", "option": "wm_settings" }),
         )?;
         sanitize_dashboard_settings(&settings)
     }
 
-    pub fn set_dashboard_favorite(&self, tile: &str, favorite: bool) -> Result<()> {
+    /// Unsupported: the web UI capture shows no dashboard-settings write call
+    /// (`Manifests` only exposes `retrieve`), so favorites cannot be changed.
+    pub fn set_dashboard_favorite(&self, tile: &str, _favorite: bool) -> Result<()> {
         validate_dashboard_tile_name(tile)?;
-        let mut settings = self.dashboard_settings()?;
-        set_dashboard_favorite_in_settings(&mut settings, tile, favorite)?;
-        let response = self.client.call(
-            "sah.Mhs",
-            "storeCategories",
-            json!({
-                "user": "admin",
-                "option": "wm_settings",
-                "data": settings
-            }),
-        )?;
-        ensure_mutation_succeeded(&response, "sah.Mhs.storeCategories")
+        bail!(
+            "dashboard favorite changes are not supported on this firmware: the web UI has no write call for dashboard settings"
+        )
     }
 
     pub fn admin_password_state(&self) -> Result<Value> {
-        let state = self.client.call(
-            "sah.Device.User",
-            "getPasswordState",
-            json!({ "user": "admin" }),
-        )?;
-        sanitize_admin_password_state(&state)
+        let user = self
+            .client
+            .call("UserManagement", "getUser", json!({ "name": "admin" }))?;
+        sanitize_admin_password_state(&user)
     }
 
     pub fn interface_language(&self) -> Result<String> {
         let language = self
             .client
-            .call_data("sah.Device.Information", "getLanguage", json!({}))?;
+            .call("UserInterface", "getLanguage", json!({}))?;
         sanitize_interface_language(&language)
     }
 
@@ -285,24 +276,21 @@ impl Router {
     }
 
     pub fn repeater_schedule_state(&self) -> Result<bool> {
-        let schedule = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "getSchedule",
+        let schedule = self.client.call_nmc_data(
+            "Scheduler",
+            "getCompleteSchedules",
             json!({ "type": "RWLAN" }),
         )?;
         sanitize_repeater_schedule_state(&schedule)
     }
 
     pub fn dashboard_power_schedules(&self) -> Result<Value> {
-        let schedules = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "getPowerManagement",
-            json!({
-                "powerManagementStep": "profiles",
-                "wantedProfiles": ["LED", "Light", "Deep", "WiFi", "WiFi5G"]
-            }),
+        let profiles = self.client.call(
+            "PowerManagement",
+            "getProfiles",
+            json!({ "profiles": ["LED", "Light", "Deep", "WiFi", "WiFi5G"] }),
         )?;
-        sanitize_dashboard_power_schedules(&schedules)
+        sanitize_dashboard_power_schedules(&profiles)
     }
 
     pub fn blocked_devices(&self) -> Result<Value> {
@@ -609,29 +597,31 @@ impl Router {
     }
 
     pub fn wifi_iot_enabled(&self) -> Result<bool> {
-        let access_points = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "listAccessPoints",
-            json!({ "linkTypeList": ["WIFI_2.4_SEC", "WIFI_5_SEC"] }),
+        let mibs = self.client.call(
+            "NeMo.Intf.sec",
+            "getMIBs",
+            json!({ "mibs": "wlanvap base" }),
         )?;
-        sanitize_wifi_iot_enabled(&access_points)
+        sanitize_wifi_iot_enabled(&mibs)
     }
 
     pub fn television_dashboard_state(&self) -> Result<bool> {
         let status = self
             .client
-            .call_data("sah.Device.Tv", "getIPTVStatus", json!({}))?;
+            .call_nmc_data("NMC.OrangeTV", "getIPTVStatus", json!({}))?;
         sanitize_television_dashboard_state(&status)
     }
 
     pub fn voice_dashboard_status(&self) -> Result<Value> {
-        let trunk =
+        let trunks =
             self.client
-                .call_data_sensitive("sah.Device.Phone", "getTrunkList", json!({}))?;
-        let calls = self
-            .client
-            .call_data_sensitive("sah.Content.CallLog", "browse", json!({}))?;
-        sanitize_voice_dashboard_status(&trunk, &calls)
+                .call_sensitive("VoiceService.VoiceApplication", "listTrunks", json!({}))?;
+        let calls = self.client.call_sensitive(
+            "VoiceService.VoiceApplication",
+            "getCallList",
+            json!([{ "line": "1" }]),
+        )?;
+        sanitize_voice_dashboard_status(&trunks, &calls)
     }
 
     pub fn television(&self) -> Result<Value> {
@@ -1282,12 +1272,11 @@ fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
 }
 
 fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
-    let state = value
-        .get("state")
-        .and_then(Value::as_str)
+    let raw = value
+        .get("passwordstate")
         .ok_or_else(|| anyhow!("Router returned an unexpected administrator password status"))?;
-    let state = match state {
-        "notSet" | "factoryDefault" => state,
+    let state = match raw.as_str() {
+        Some(state @ ("notSet" | "factoryDefault")) => state,
         _ => "unknown",
     };
     Ok(json!({ "state": state }))
@@ -1295,8 +1284,7 @@ fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
 
 fn sanitize_interface_language(value: &Value) -> Result<String> {
     let language = value
-        .get("languageId")
-        .and_then(Value::as_str)
+        .as_str()
         .ok_or_else(|| anyhow!("Router returned an unexpected interface language"))?;
     if !matches!(language, "en" | "pl") {
         bail!("Router reported an unsupported interface language code");
@@ -1328,7 +1316,7 @@ fn sanitize_internet_dashboard_state(value: &Value) -> Result<Value> {
 
 fn sanitize_repeater_schedule_state(value: &Value) -> Result<bool> {
     let schedules = value
-        .get("fullScheduleList")
+        .get("scheduleInfo")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("Router returned an unexpected repeater schedule format"))?;
     let Some(first) = schedules.first() else {
@@ -1341,15 +1329,8 @@ fn sanitize_repeater_schedule_state(value: &Value) -> Result<bool> {
 }
 
 fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
-    let status = value
-        .get("status")
-        .ok_or_else(|| anyhow!("Router did not report the power-saving profile status"))?;
-    if status != 0 && status != true {
-        bail!("Router returned an error status for power-saving profiles");
-    }
     let profiles = value
-        .get("profiles")
-        .and_then(Value::as_object)
+        .as_object()
         .ok_or_else(|| anyhow!("Router returned an unexpected list of power-saving profiles"))?;
     let mut result = serde_json::Map::new();
     for name in ["LED", "Light", "Deep", "WiFi", "WiFi5G"] {
@@ -1365,7 +1346,11 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
             Some(_) => bail!("Power-saving profile {name} has an invalid Activate status"),
         };
         let scheduled = if active {
-            profile.get("Type").and_then(Value::as_str) == Some("Scheduled")
+            profile
+                .get("Scheduler")
+                .and_then(|scheduler| scheduler.get("Type"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "Weekly")
         } else {
             false
         };
@@ -1378,16 +1363,21 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
 }
 
 fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
-    let access_points = value
-        .get("accessPointList")
-        .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("Router returned an unexpected list of IoT access points"))?;
+    let base = value
+        .get("base")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of Wi-Fi interfaces"))?;
+    let wlanvap = value
+        .get("wlanvap")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of Wi-Fi access points"))?;
     let mut any_enabled = false;
-    for access_point in access_points {
-        let enabled = access_point
-            .get("isEnabled")
+    for name in wlanvap.keys() {
+        let enabled = base
+            .get(name)
+            .and_then(|interface| interface.get("Enable"))
             .and_then(Value::as_bool)
-            .ok_or_else(|| anyhow!("IoT access point has no valid isEnabled status"))?;
+            .ok_or_else(|| anyhow!("Wi-Fi access point has no valid Enable status"))?;
         any_enabled |= enabled;
     }
     Ok(any_enabled)
@@ -1395,26 +1385,26 @@ fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
 
 fn sanitize_television_dashboard_state(value: &Value) -> Result<bool> {
     let state = value
-        .get("state")
+        .get("IPTVStatus")
+        .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("Router did not report the IPTV state"))?;
     match state {
-        Value::Bool(enabled) => Ok(*enabled),
-        Value::Number(enabled)
-            if enabled
-                .as_i64()
-                .is_some_and(|value| (0..=1).contains(&value)) =>
-        {
-            Ok(enabled.as_i64() == Some(1))
-        }
+        "Unavailable" | "Disabled" => Ok(false),
+        "Enabled" => Ok(true),
         _ => bail!("Router returned an unsupported IPTV state format"),
     }
 }
 
-fn sanitize_voice_dashboard_status(trunk: &Value, calls: &Value) -> Result<Value> {
-    let enabled = trunk
-        .get("isEnabled")
-        .and_then(Value::as_bool)
+fn sanitize_voice_dashboard_status(trunks: &Value, calls: &Value) -> Result<Value> {
+    let trunk = trunks
+        .as_array()
+        .and_then(|trunks| trunks.first())
         .ok_or_else(|| anyhow!("Router did not report the phone line status"))?;
+    let enabled = match trunk.get("enable").and_then(Value::as_str) {
+        Some("Enabled") => true,
+        Some("Disabled") => false,
+        _ => bail!("Router returned an unsupported phone line status"),
+    };
     let calls = calls
         .as_array()
         .ok_or_else(|| anyhow!("Router returned an unexpected call list"))?;
@@ -1433,6 +1423,7 @@ fn sanitize_voice_dashboard_status(trunk: &Value, calls: &Value) -> Result<Value
     Ok(json!({ "lineEnabled": enabled, "missedCalls": missed_calls }))
 }
 
+#[cfg(test)]
 fn set_dashboard_favorite_in_settings(
     settings: &mut Value,
     tile: &str,
@@ -2624,7 +2615,8 @@ mod tests {
     #[test]
     fn admin_password_state_exposes_only_nonsecret_state() {
         let status = serde_json::json!({
-            "state": "factoryDefault",
+            "name": "admin",
+            "passwordstate": "factoryDefault",
             "password": "must-not-leak",
             "passwordHash": "also-must-not-leak"
         });
@@ -2633,7 +2625,8 @@ mod tests {
             serde_json::json!({ "state": "factoryDefault" })
         );
         assert_eq!(
-            sanitize_admin_password_state(&serde_json::json!({ "state": "unexpected" })).unwrap(),
+            sanitize_admin_password_state(&serde_json::json!({ "passwordstate": "unexpected" }))
+                .unwrap(),
             serde_json::json!({ "state": "unknown" })
         );
         assert!(sanitize_admin_password_state(&serde_json::json!({})).is_err());
@@ -2642,10 +2635,10 @@ mod tests {
     #[test]
     fn interface_language_is_validated_against_firmware_languages() {
         assert_eq!(
-            sanitize_interface_language(&serde_json::json!({ "languageId": "pl" })).unwrap(),
+            sanitize_interface_language(&serde_json::json!("pl")).unwrap(),
             "pl"
         );
-        assert!(sanitize_interface_language(&serde_json::json!({ "languageId": "fr" })).is_err());
+        assert!(sanitize_interface_language(&serde_json::json!("fr")).is_err());
         assert!(sanitize_interface_language(&serde_json::json!({})).is_err());
     }
 
@@ -2674,19 +2667,19 @@ mod tests {
     fn repeater_schedule_state_matches_dashboard_tile() {
         assert!(
             sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": [{ "enable": true }]
+                "scheduleInfo": [{ "enable": true }]
             }))
             .unwrap()
         );
         assert!(
             !sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": []
+                "scheduleInfo": []
             }))
             .unwrap()
         );
         assert!(
             sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": [{ "enable": "yes" }]
+                "scheduleInfo": [{ "enable": "yes" }]
             }))
             .is_err()
         );
@@ -2695,84 +2688,76 @@ mod tests {
     #[test]
     fn power_schedules_only_return_known_profile_states() {
         let raw = serde_json::json!({
-            "status": 0,
-            "profiles": {
-                "LED": { "Activate": true, "Type": "Scheduled", "password": "private" },
-                "WiFi": { "Activate": false, "Type": "Always" },
-                "unknown": { "Activate": true, "Type": "Scheduled" }
-            }
+            "LED": { "Activate": true, "Scheduler": { "Type": "Weekly" }, "password": "private" },
+            "WiFi": { "Activate": false, "Scheduler": { "Type": "Weekly" } },
+            "unknown": { "Activate": true, "Scheduler": { "Type": "Weekly" } }
         });
         let clean = sanitize_dashboard_power_schedules(&raw).unwrap();
         assert_eq!(clean["LED"], true);
         assert_eq!(clean["WiFi"], false);
         assert!(clean.get("unknown").is_none());
         assert!(!clean.to_string().contains("private"));
-        assert!(
-            sanitize_dashboard_power_schedules(&serde_json::json!({
-                "status": 1,
-                "profiles": { "LED": { "Activate": true, "Type": "Scheduled" } }
-            }))
-            .is_err()
-        );
+        assert!(sanitize_dashboard_power_schedules(&serde_json::json!({ "unknown": {} })).is_err());
     }
 
     #[test]
     fn wifi_iot_status_requires_boolean_access_point_states() {
-        assert!(sanitize_wifi_iot_enabled(&serde_json::json!({
-            "accessPointList": [{ "isEnabled": false }, { "isEnabled": true, "ssid": "private" }]
-        }))
-        .unwrap());
+        assert!(
+            sanitize_wifi_iot_enabled(&serde_json::json!({
+                "base": { "vap2g0sec": { "Enable": false }, "vap5g0sec": { "Enable": true } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" }, "vap5g0sec": { "SSID": "private" } }
+            }))
+            .unwrap()
+        );
         assert!(
             !sanitize_wifi_iot_enabled(&serde_json::json!({
-                "accessPointList": [{ "isEnabled": false }]
+                "base": { "vap2g0sec": { "Enable": false } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" } }
             }))
             .unwrap()
         );
         assert!(
             sanitize_wifi_iot_enabled(&serde_json::json!({
-                "accessPointList": [{ "isEnabled": "true" }]
+                "base": { "vap2g0sec": { "Enable": "true" } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" } }
             }))
             .is_err()
         );
     }
 
     #[test]
-    fn iptv_status_uses_only_safe_truth_value() {
+    fn iptv_status_maps_web_ui_state_string() {
         assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": true })).unwrap()
+            !sanitize_television_dashboard_state(
+                &serde_json::json!({ "IPTVStatus": "Unavailable" })
+            )
+            .unwrap()
         );
         assert!(
-            !sanitize_television_dashboard_state(&serde_json::json!({ "state": false })).unwrap()
-        );
-        assert!(sanitize_television_dashboard_state(&serde_json::json!({ "state": 1 })).unwrap());
-        assert!(!sanitize_television_dashboard_state(&serde_json::json!({ "state": 0 })).unwrap());
-        assert!(sanitize_television_dashboard_state(&serde_json::json!({ "state": 2 })).is_err());
-        assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": "false" })).is_err()
+            sanitize_television_dashboard_state(&serde_json::json!({ "IPTVStatus": "Enabled" }))
+                .unwrap()
         );
         assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": "active" })).is_err()
-        );
-        assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": { "secret": 1 } }))
+            sanitize_television_dashboard_state(&serde_json::json!({ "IPTVStatus": "bogus" }))
                 .is_err()
         );
+        assert!(sanitize_television_dashboard_state(&serde_json::json!({})).is_err());
     }
 
     #[test]
     fn voice_dashboard_summary_hides_call_details() {
-        let trunk = serde_json::json!({ "isEnabled": true, "username": "private" });
+        let trunks = serde_json::json!([{ "enable": "Enabled", "username": "private" }]);
         let calls = serde_json::json!([
             { "type": "missed", "phoneNumber": "+48123456789" },
             { "type": "outgoing", "phoneNumber": "+48987654321" },
             { "type": "missed", "phoneNumber": "+48000000000" }
         ]);
-        let clean = sanitize_voice_dashboard_status(&trunk, &calls).unwrap();
+        let clean = sanitize_voice_dashboard_status(&trunks, &calls).unwrap();
         assert_eq!(clean["lineEnabled"], true);
         assert_eq!(clean["missedCalls"], 2);
         assert!(!clean.to_string().contains("private"));
         assert!(!clean.to_string().contains("+48"));
-        assert!(sanitize_voice_dashboard_status(&trunk, &serde_json::json!({})).is_err());
+        assert!(sanitize_voice_dashboard_status(&trunks, &serde_json::json!({})).is_err());
     }
 
     #[test]
