@@ -180,12 +180,9 @@ impl Router {
         )
     }
 
-    /// Unsupported: the web UI capture and bundle show no WPS enable/disable
-    /// write (only pairing start/stop calls), so WPS state cannot be changed.
-    pub fn set_wps(&self, _enabled: bool) -> Result<Value> {
-        bail!(
-            "WPS on/off is not supported on this firmware: the web UI has no verified WPS enable/disable call"
-        )
+    pub fn set_wps(&self, enabled: bool) -> Result<Value> {
+        self.client
+            .call("NMC.Wifi", "setWPSEnable", json!({ "enable": enabled }))
     }
 
     pub fn wifi_open_mode(&self) -> Result<Value> {
@@ -300,22 +297,47 @@ impl Router {
         Ok(filter_blocked_schedules(&self.device_schedules()?))
     }
 
-    /// Unsupported: the web UI writes device restrictions through
-    /// `NetworkMap.setDeviceSchedule` keyed by an internal device ID, not the
-    /// `Scheduler` ToD calls this CLI used, so the write is not verified here.
     pub fn block_device(&self, mac: &str) -> Result<()> {
-        normalize_mac_address(mac)?;
-        bail!(
-            "block-device is not supported on this firmware: the web UI device restriction call is not verified here"
-        )
+        let mac = normalize_mac_address(mac)?;
+        let schedules = self.device_schedules()?;
+        if find_device_schedule(&schedules, &mac).is_some() {
+            self.client.call(
+                "Scheduler",
+                "overrideSchedule",
+                json!({ "type": "ToD", "ID": mac, "override": "Disable" }),
+            )?;
+        } else {
+            self.client.call(
+                "Scheduler",
+                "addSchedule",
+                json!({
+                    "type": "ToD",
+                    "info": {
+                        "ID": mac,
+                        "base": "Weekly",
+                        "def": "Enable",
+                        "schedule": [],
+                        "enable": true,
+                        "override": "Disable"
+                    }
+                }),
+            )?;
+        }
+        Ok(())
     }
 
-    /// Unsupported for the same reason as `block_device`.
     pub fn unblock_device(&self, mac: &str) -> Result<()> {
-        normalize_mac_address(mac)?;
-        bail!(
-            "unblock-device is not supported on this firmware: the web UI device restriction call is not verified here"
-        )
+        let mac = normalize_mac_address(mac)?;
+        let schedules = self.device_schedules()?;
+        if find_device_schedule(&schedules, &mac).is_none() {
+            bail!("No access restriction schedule exists for device {mac}");
+        }
+        self.client.call(
+            "Scheduler",
+            "overrideSchedule",
+            json!({ "type": "ToD", "ID": mac, "override": "Enable" }),
+        )?;
+        Ok(())
     }
 
     fn device_schedules(&self) -> Result<Value> {
@@ -537,12 +559,20 @@ impl Router {
         self.client.call("NMC.Guest", "get", json!({}))
     }
 
-    /// Unsupported: the web UI toggles guest Wi-Fi through `configureWLANManager`
-    /// with a per-access-point ID that this CLI does not resolve yet.
-    pub fn set_guest(&self, _enabled: bool) -> Result<Value> {
-        bail!(
-            "guest Wi-Fi on/off is not supported on this firmware: the web UI write call needs an access point ID that is not verified here"
-        )
+    pub fn set_guest(&self, enabled: bool) -> Result<Value> {
+        if enabled {
+            self.client.call(
+                "NMC.WlanTimer",
+                "setActivationTimer",
+                json!({ "InterfaceName": "guest", "Timeout": 0 }),
+            )
+        } else {
+            self.client.call(
+                "NMC.WlanTimer",
+                "disableActivationTimer",
+                json!({ "InterfaceName": "guest" }),
+            )
+        }
     }
 
     pub fn guest_networks(&self) -> Result<Value> {
@@ -2073,7 +2103,6 @@ fn is_blocked_schedule(schedule: &Value) -> bool {
     }) == Some("Disable")
 }
 
-#[cfg_attr(not(test), allow(dead_code))]
 fn find_device_schedule<'a>(schedules: &'a Value, mac: &str) -> Option<&'a Value> {
     schedules.as_array()?.iter().find(|schedule| {
         schedule
