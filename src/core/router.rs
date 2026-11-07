@@ -459,10 +459,15 @@ impl Router {
 
     pub fn set_dhcp_lease_time(&self, seconds: u32) -> Result<Value> {
         Self::validate_dhcp_lease_time(seconds)?;
+        let current = self.client.call(
+            "sah.HomeNetwork.DhcpServerIpv4",
+            "getIpv4Configuration",
+            Value::Null,
+        )?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
-            "setLeaseTime",
-            json!({ "leasetime": seconds }),
+            "sah.HomeNetwork.DhcpServerIpv4",
+            "setIpv4Configuration",
+            dhcp_ipv4_configuration_with_lease_time(&current, seconds)?,
         )
     }
 
@@ -1423,6 +1428,15 @@ fn ipv6_pinhole_add_parameters(
     }))
 }
 
+fn dhcp_ipv4_configuration_with_lease_time(current: &Value, seconds: u32) -> Result<Value> {
+    let mut configuration = current
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow!("Router returned an unexpected DHCP configuration format"))?;
+    configuration.insert("dhcpLeaseTime".to_owned(), json!(seconds));
+    Ok(Value::Object(configuration))
+}
+
 fn find_device_id_by_mac(device_list: &Value, mac: &str) -> Option<String> {
     device_list.as_array()?.iter().find_map(|device| {
         let address =
@@ -1530,6 +1544,24 @@ mod webui_parameter_tests {
             forward_delete_parameters("web", "tcp").unwrap(),
             json!({ "name": "web", "protocol": "tcp" })
         );
+    }
+
+    #[test]
+    fn dhcp_lease_time_replaces_only_that_field() {
+        let current = json!({
+            "isDhcpEnabled": true,
+            "ipAddress": "192.168.1.1",
+            "mask": "255.255.255.0",
+            "minIpAddress": "192.168.1.10",
+            "maxIpAddress": "192.168.1.200",
+            "dhcpLeaseTime": 86400,
+            "prefixLength": 24
+        });
+        let updated = dhcp_ipv4_configuration_with_lease_time(&current, 3600).unwrap();
+        assert_eq!(updated["dhcpLeaseTime"], json!(3600));
+        assert_eq!(updated["ipAddress"], json!("192.168.1.1"));
+        assert_eq!(updated["prefixLength"], json!(24));
+        assert!(dhcp_ipv4_configuration_with_lease_time(&json!("bad"), 3600).is_err());
     }
 
     #[test]
