@@ -60,13 +60,31 @@ impl RouterClient {
         authorization: &str,
         sensitive: bool,
     ) -> Result<Value> {
-        let response = self
+        self.post_ws(body, Some(authorization), None, sensitive)
+    }
+
+    /// Posts one `/ws` call. The web UI sends `X-Context` on authenticated
+    /// calls and makes anonymous calls (no `Authorization`) before login.
+    fn post_ws(
+        &self,
+        body: &Value,
+        authorization: Option<&str>,
+        x_context: Option<&str>,
+        sensitive: bool,
+    ) -> Result<Value> {
+        let mut request = self
             .http
             .post(&self.endpoint)
             .header(reqwest::header::CONTENT_TYPE, API_CONTENT_TYPE)
             .header(reqwest::header::ACCEPT, "*/*")
-            .header(reqwest::header::REFERER, &self.referer)
-            .header(reqwest::header::AUTHORIZATION, authorization)
+            .header(reqwest::header::REFERER, &self.referer);
+        if let Some(authorization) = authorization {
+            request = request.header(reqwest::header::AUTHORIZATION, authorization);
+        }
+        if let Some(context_id) = x_context {
+            request = request.header("X-Context", context_id);
+        }
+        let response = request
             .body(body.to_string())
             .send()
             .with_context(|| format!("failed to connect to {}", self.endpoint))?;
@@ -92,8 +110,19 @@ impl RouterClient {
         })
     }
 
+    /// Anonymous calls the web UI makes before login. They set the session
+    /// cookie that the router requires for authenticated calls.
+    fn warm_up(&self) -> Result<()> {
+        for (service, method) in [("DeviceInfo", "get"), ("UserInterface", "getLanguage")] {
+            let body = json!({ "service": service, "method": method, "parameters": {} });
+            self.post_ws(&body, None, None, false)?;
+        }
+        Ok(())
+    }
+
     pub fn login(host: &str, username: &str, password: &str) -> Result<Self> {
         let mut client = Self::new(host)?;
+        client.warm_up()?;
         let body = json!({
             "service": "sah.Device.Information",
             "method": "createContext",
@@ -126,6 +155,28 @@ impl RouterClient {
         self.call_with_privacy(service, method, parameters, true)
     }
 
+    /// For NMC-style services that report success as `status: true` and put the
+    /// payload in `data`. Returns `data`, or an error when `errors` is present.
+    pub fn call_nmc_data(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
+        let context_id = self
+            .context_id
+            .as_deref()
+            .ok_or_else(|| anyhow!("no active session"))?;
+        let body = json!({
+            "service": service,
+            "method": method,
+            "parameters": parameters
+        });
+        let authorization = format!("X-Sah {context_id}");
+        let response = self.post_ws(&body, Some(&authorization), Some(context_id), false)?;
+        let operation = format!("{service}.{method}");
+        check_api_errors_with_privacy(&response, &operation, false)?;
+        response
+            .get("data")
+            .cloned()
+            .ok_or_else(|| anyhow!("response from {operation} is missing the data field"))
+    }
+
     pub fn call_data(&self, service: &str, method: &str, parameters: Value) -> Result<Value> {
         self.call_data_with_privacy(service, method, parameters, false)
     }
@@ -156,11 +207,7 @@ impl RouterClient {
             "parameters": parameters
         });
         let authorization = format!("X-Sah {context_id}");
-        let response = if sensitive {
-            self.request_sensitive(&body, &authorization)?
-        } else {
-            self.request(&body, &authorization)?
-        };
+        let response = self.post_ws(&body, Some(&authorization), Some(context_id), sensitive)?;
         let operation = format!("{service}.{method}");
         check_api_errors_with_privacy(&response, &operation, sensitive)?;
         response_data_with_privacy(&response, &operation, sensitive)
@@ -183,11 +230,7 @@ impl RouterClient {
             "parameters": parameters
         });
         let authorization = format!("X-Sah {context_id}");
-        let response = if sensitive {
-            self.request_sensitive(&body, &authorization)?
-        } else {
-            self.request(&body, &authorization)?
-        };
+        let response = self.post_ws(&body, Some(&authorization), Some(context_id), sensitive)?;
         check_api_errors_with_privacy(&response, &format!("{service}.{method}"), sensitive)?;
         if let Some(status) = response.get("status").filter(|value| !value.is_null()) {
             return Ok(status.clone());

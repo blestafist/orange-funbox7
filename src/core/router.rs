@@ -171,9 +171,9 @@ impl Router {
     }
 
     pub fn internet_dashboard_state(&self) -> Result<Value> {
-        let state =
-            self.client
-                .call_data("sah.Connection.Client", "getConnectionState", json!({}))?;
+        let state = self
+            .client
+            .call_nmc_data("NMC", "getWANStatus", json!({}))?;
         sanitize_internet_dashboard_state(&state)
     }
 
@@ -1305,20 +1305,17 @@ fn sanitize_interface_language(value: &Value) -> Result<String> {
 }
 
 fn sanitize_internet_dashboard_state(value: &Value) -> Result<Value> {
-    let link = value
-        .get("linkModeList")
-        .and_then(Value::as_array)
-        .and_then(|links| links.first())
-        .ok_or_else(|| anyhow!("Router did not return the internet connection state"))?;
-    let state = link
-        .get("state")
+    // NMC.getWANStatus reports ConnectionState ("Connected" when the link is up)
+    // and LinkType (for example "gpon"). Addresses are intentionally dropped.
+    let connection = value
+        .get("ConnectionState")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("Response contains no internet connection state"))?;
-    let available = state == "OK";
+    let available = connection == "Connected";
     let mut clean = json!({ "available": available });
     if available {
-        let link_mode = link
-            .get("linkMode")
+        let link_mode = value
+            .get("LinkType")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("Response contains no internet connection type"))?;
         if link_mode.is_empty() || link_mode.len() > 64 || link_mode.chars().any(char::is_control) {
@@ -2655,22 +2652,22 @@ mod tests {
     #[test]
     fn dashboard_connection_state_is_allowlisted() {
         let state = serde_json::json!({
-            "linkModeList": [{ "state": "OK", "linkMode": "VDSL", "password": "private" }],
-            "metadata": "private"
+            "ConnectionState": "Connected",
+            "LinkType": "gpon",
+            "IPAddress": "private",
+            "password": "private"
         });
         let clean = sanitize_internet_dashboard_state(&state).unwrap();
         assert_eq!(clean["available"], true);
-        assert_eq!(clean["linkMode"], "VDSL");
+        assert_eq!(clean["linkMode"], "gpon");
         assert!(!clean.to_string().contains("private"));
         let disconnected = sanitize_internet_dashboard_state(&serde_json::json!({
-            "linkModeList": [{ "state": "DOWN" }]
+            "ConnectionState": "Disconnected"
         }))
         .unwrap();
         assert_eq!(disconnected["available"], false);
         assert!(disconnected.get("linkMode").is_none());
-        assert!(
-            sanitize_internet_dashboard_state(&serde_json::json!({ "linkModeList": [] })).is_err()
-        );
+        assert!(sanitize_internet_dashboard_state(&serde_json::json!({})).is_err());
     }
 
     #[test]
