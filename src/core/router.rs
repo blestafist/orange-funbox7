@@ -733,8 +733,6 @@ impl Router {
             }),
         )?;
         ensure_mutation_succeeded(&response, "Firewall.setPinhole")?;
-        let response = self.client.call("Firewall", "commit", json!({}))?;
-        ensure_mutation_succeeded(&response, "Firewall.commit")?;
         Ok(())
     }
 
@@ -766,8 +764,6 @@ impl Router {
             .client
             .call("Firewall", "deletePinhole", json!({ "id": id }))?;
         ensure_mutation_succeeded(&response, "Firewall.deletePinhole")?;
-        let response = self.client.call("Firewall", "commit", json!({}))?;
-        ensure_mutation_succeeded(&response, "Firewall.commit")?;
         Ok(())
     }
 
