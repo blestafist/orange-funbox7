@@ -117,10 +117,24 @@ The client keeps the session cookie in memory only for the duration of the run, 
 The DDNS provider password for `ddns-add` is entered without being displayed; the CLI does not print it and suppresses API error details for this request. It is still sent to the router over HTTP, so use this command only on a trusted local network.
 
 Some less common methods (UPnP management, IPv6 pinholes, DDNS hosts, time zone changes, `firewall-ipv6`, `remote-access`, `backup-status`, WPS management, `wan-stats`, DHCP lease duration, and others) have been cross-checked against APIs from related Livebox/Funbox generations, but have not yet been tested on Funbox 7 `ARF7-pl-01.01.05.27`. If the firmware does not support them, the command will return an API error.
-On firmware `ARF7-pl-01.01.05.27`, the read-only `sah.*` calls used by `dashboard-tiles`, `admin-password-state`, `language`, `internet-state`, `power-schedules`, `repeater-schedule`, `wifi-iot-status`, `iptv-status`, and `phone-status` were tested and return error `196618: Object or parameter not found`. These commands are currently non-functional on this firmware; do not rely on them.
-`dashboard-favorite` writes through `sah.Mhs.storeCategories`; it was not invoked, so its compatibility is unverified. No router write operations were performed.
+The read-only commands `dashboard-tiles`, `admin-password-state`, `language`, `internet-state`, `power-schedules`, `repeater-schedule`, `wifi-iot-status`, `iptv-status`, and `phone-status` use web UI services and pass on firmware `ARF7-pl-01.01.05.27`; see Firmware compatibility below.
+`dashboard-favorite` is not supported on this firmware: the web UI has no write call for dashboard settings, so the CLI returns an error and changes nothing. No router write operations were performed.
 `blocked-devices` reports only restrictions on Internet access; it does not isolate a device from other devices on the local network.
 `block-device` and `unblock-device` also control Internet access only; both commands require confirmation.
+
+## Firmware compatibility
+
+Verified read-only on firmware `ARF7-pl-01.01.05.27`: 52 commands pass and 6 fail.
+
+The following commands fail because the service is missing on this firmware:
+
+- `wan-stats` (NeMo.Intf.data)
+- `backup-status` (NMC.NetworkConfig)
+- `leds` (LED.getAllLedStatus)
+- `wifi-open-mode` (Wificom.OpenMode)
+- `iot-status` (IoTService)
+
+`device` without a MAC argument is a usage error, not a firmware failure. Commands that change router state were not tested on the router.
 
 ## Architecture
 

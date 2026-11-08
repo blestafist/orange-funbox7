@@ -23,42 +23,33 @@ impl Router {
 
     pub fn dashboard_settings(&self) -> Result<Value> {
         let settings = self.client.call(
-            "sah.Mhs",
-            "retrieveCategories",
+            "Manifests",
+            "retrieve",
             json!({ "user": "admin", "option": "wm_settings" }),
         )?;
         sanitize_dashboard_settings(&settings)
     }
 
-    pub fn set_dashboard_favorite(&self, tile: &str, favorite: bool) -> Result<()> {
+    /// Unsupported: the web UI capture shows no dashboard-settings write call
+    /// (`Manifests` only exposes `retrieve`), so favorites cannot be changed.
+    pub fn set_dashboard_favorite(&self, tile: &str, _favorite: bool) -> Result<()> {
         validate_dashboard_tile_name(tile)?;
-        let mut settings = self.dashboard_settings()?;
-        set_dashboard_favorite_in_settings(&mut settings, tile, favorite)?;
-        let response = self.client.call(
-            "sah.Mhs",
-            "storeCategories",
-            json!({
-                "user": "admin",
-                "option": "wm_settings",
-                "data": settings
-            }),
-        )?;
-        ensure_mutation_succeeded(&response, "sah.Mhs.storeCategories")
+        bail!(
+            "dashboard favorite changes are not supported on this firmware: the web UI has no write call for dashboard settings"
+        )
     }
 
     pub fn admin_password_state(&self) -> Result<Value> {
-        let state = self.client.call(
-            "sah.Device.User",
-            "getPasswordState",
-            json!({ "user": "admin" }),
-        )?;
-        sanitize_admin_password_state(&state)
+        let user = self
+            .client
+            .call("UserManagement", "getUser", json!({ "name": "admin" }))?;
+        sanitize_admin_password_state(&user)
     }
 
     pub fn interface_language(&self) -> Result<String> {
         let language = self
             .client
-            .call_data("sah.Device.Information", "getLanguage", json!({}))?;
+            .call("UserInterface", "getLanguage", json!({}))?;
         sanitize_interface_language(&language)
     }
 
@@ -100,16 +91,11 @@ impl Router {
             bail!("DynDNS host {hostname:?} is already configured");
         }
         let response = self.client.call_sensitive(
-            "DynDNS",
-            "addHost",
-            json!({
-                "service": service,
-                "hostname": hostname,
-                "username": username,
-                "password": password
-            }),
+            "sah.HomeNetwork.DynDns",
+            "addUserAccount",
+            dynamic_dns_add_parameters(service, hostname, username, password),
         )?;
-        ensure_mutation_succeeded(&response, "DynDNS.addHost")
+        ensure_mutation_succeeded(&response, "DynDNS.addUserAccount")
     }
 
     pub fn remove_dynamic_dns_host(&self, hostname: &str) -> Result<()> {
@@ -117,10 +103,12 @@ impl Router {
         if find_dynamic_dns_host(&self.dynamic_dns_hosts()?, hostname).is_none() {
             bail!("DynDNS host {hostname:?} was not found");
         }
-        let response = self
-            .client
-            .call("DynDNS", "delHost", json!({ "hostname": hostname }))?;
-        ensure_mutation_succeeded(&response, "DynDNS.delHost")
+        let response = self.client.call(
+            "sah.HomeNetwork.DynDns",
+            "deleteUserAccount",
+            dynamic_dns_delete_parameters(hostname),
+        )?;
+        ensure_mutation_succeeded(&response, "DynDNS.deleteUserAccount")
     }
 
     pub fn validate_dynamic_dns_config(
@@ -171,9 +159,9 @@ impl Router {
     }
 
     pub fn internet_dashboard_state(&self) -> Result<Value> {
-        let state =
-            self.client
-                .call_data("sah.Connection.Client", "getConnectionState", json!({}))?;
+        let state = self
+            .client
+            .call_nmc_data("NMC", "getWANStatus", json!({}))?;
         sanitize_internet_dashboard_state(&state)
     }
 
@@ -183,9 +171,9 @@ impl Router {
 
     pub fn set_wifi(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "NMC.Wifi",
-            "set",
-            json!({ "Enable": enabled, "Status": enabled }),
+            "sah.Connection.Server.WiFi",
+            "setActivationState",
+            wifi_activation_parameters(enabled),
         )
     }
 
@@ -285,24 +273,21 @@ impl Router {
     }
 
     pub fn repeater_schedule_state(&self) -> Result<bool> {
-        let schedule = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "getSchedule",
+        let schedule = self.client.call_nmc_data(
+            "Scheduler",
+            "getCompleteSchedules",
             json!({ "type": "RWLAN" }),
         )?;
         sanitize_repeater_schedule_state(&schedule)
     }
 
     pub fn dashboard_power_schedules(&self) -> Result<Value> {
-        let schedules = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "getPowerManagement",
-            json!({
-                "powerManagementStep": "profiles",
-                "wantedProfiles": ["LED", "Light", "Deep", "WiFi", "WiFi5G"]
-            }),
+        let profiles = self.client.call(
+            "PowerManagement",
+            "getProfiles",
+            json!({ "profiles": ["LED", "Light", "Deep", "WiFi", "WiFi5G"] }),
         )?;
-        sanitize_dashboard_power_schedules(&schedules)
+        sanitize_dashboard_power_schedules(&profiles)
     }
 
     pub fn blocked_devices(&self) -> Result<Value> {
@@ -474,10 +459,15 @@ impl Router {
 
     pub fn set_dhcp_lease_time(&self, seconds: u32) -> Result<Value> {
         Self::validate_dhcp_lease_time(seconds)?;
+        let current = self.client.call(
+            "sah.HomeNetwork.DhcpServerIpv4",
+            "getIpv4Configuration",
+            Value::Null,
+        )?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
-            "setLeaseTime",
-            json!({ "leasetime": seconds }),
+            "sah.HomeNetwork.DhcpServerIpv4",
+            "setIpv4Configuration",
+            dhcp_ipv4_configuration_with_lease_time(&current, seconds)?,
         )
     }
 
@@ -486,19 +476,35 @@ impl Router {
     }
 
     pub fn add_lease(&self, mac: &str, ip: &str) -> Result<Value> {
+        let device_id = self.device_id_for_mac(mac)?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
+            "sah.HomeNetwork.DhcpServerIpv4",
             "addStaticLease",
-            json!({ "MACAddress": mac, "IPAddress": ip }),
+            static_lease_parameters(&device_id, ip),
         )
     }
 
     pub fn remove_lease(&self, mac: &str) -> Result<Value> {
+        let device_id = self.device_id_for_mac(mac)?;
         self.client.call(
-            "DHCPv4.Server.Pool.default",
+            "sah.HomeNetwork.DhcpServerIpv4",
             "deleteStaticLease",
-            json!({ "MACAddress": mac }),
+            static_lease_delete_parameters(&device_id),
         )
+    }
+
+    fn device_id_for_mac(&self, mac: &str) -> Result<String> {
+        let mac = normalize_mac_address(mac)?;
+        let devices = self.client.call(
+            "sah.HomeNetwork.NetworkMap",
+            "fastListDevices",
+            json!({ "expression": "not interface and not self and (eth or wifi)" }),
+        )?;
+        let device_list = devices
+            .get("deviceList")
+            .ok_or_else(|| anyhow!("Router returned an unexpected device list format"))?;
+        find_device_id_by_mac(device_list, &mac)
+            .ok_or_else(|| anyhow!("Device with MAC address {mac} was not found on the network"))
     }
 
     pub fn firewall_level(&self) -> Result<Value> {
@@ -524,7 +530,11 @@ impl Router {
     }
 
     pub fn disable_remote_access(&self) -> Result<Value> {
-        self.client.call("RemoteAccess", "disable", json!({}))
+        self.client.call(
+            "sah.Connection.Server.RemoteAccess",
+            "deactivate",
+            json!({}),
+        )
     }
 
     pub fn upnp_status(&self) -> Result<Value> {
@@ -534,9 +544,9 @@ impl Router {
 
     pub fn set_upnp_enabled(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "UPnP-IGD",
-            "set",
-            json!({ "parameters": { "Enable": enabled } }),
+            "sah.HomeNetwork.UpnpServer",
+            "setCurrentState",
+            json!({ "isUpnpRulesEnabled": enabled }),
         )
     }
 
@@ -550,21 +560,18 @@ impl Router {
 
     pub fn set_firewall_ping_response(&self, enabled: bool) -> Result<Value> {
         self.client.call(
-            "Firewall",
-            "setRespondToPing",
-            json!({
-                "sourceInterface": "data",
-                "service_enable": {
-                    "enableIPv4": enabled,
-                    "enableIPv6": enabled
-                }
-            }),
+            "sah.HomeNetwork.Firewall.Ping",
+            "setRespondToPingState",
+            firewall_ping_parameters(enabled),
         )
     }
 
     pub fn set_firewall_level(&self, level: &str) -> Result<Value> {
-        self.client
-            .call("Firewall", "setFirewallLevel", json!({ "level": level }))
+        self.client.call(
+            "sah.HomeNetwork.Firewall.Level",
+            "setLevel",
+            firewall_level_parameters(level),
+        )
     }
 
     pub fn guest(&self) -> Result<Value> {
@@ -609,29 +616,31 @@ impl Router {
     }
 
     pub fn wifi_iot_enabled(&self) -> Result<bool> {
-        let access_points = self.client.call_data(
-            "sah.Connection.Server.WiFi",
-            "listAccessPoints",
-            json!({ "linkTypeList": ["WIFI_2.4_SEC", "WIFI_5_SEC"] }),
+        let mibs = self.client.call(
+            "NeMo.Intf.sec",
+            "getMIBs",
+            json!({ "mibs": "wlanvap base" }),
         )?;
-        sanitize_wifi_iot_enabled(&access_points)
+        sanitize_wifi_iot_enabled(&mibs)
     }
 
     pub fn television_dashboard_state(&self) -> Result<bool> {
         let status = self
             .client
-            .call_data("sah.Device.Tv", "getIPTVStatus", json!({}))?;
+            .call_nmc_data("NMC.OrangeTV", "getIPTVStatus", json!({}))?;
         sanitize_television_dashboard_state(&status)
     }
 
     pub fn voice_dashboard_status(&self) -> Result<Value> {
-        let trunk =
+        let trunks =
             self.client
-                .call_data_sensitive("sah.Device.Phone", "getTrunkList", json!({}))?;
-        let calls = self
-            .client
-            .call_data_sensitive("sah.Content.CallLog", "browse", json!({}))?;
-        sanitize_voice_dashboard_status(&trunk, &calls)
+                .call_sensitive("VoiceService.VoiceApplication", "listTrunks", json!({}))?;
+        let calls = self.client.call_sensitive(
+            "VoiceService.VoiceApplication",
+            "getCallList",
+            json!([{ "line": "1" }]),
+        )?;
+        sanitize_voice_dashboard_status(&trunks, &calls)
     }
 
     pub fn television(&self) -> Result<Value> {
@@ -677,23 +686,10 @@ impl Router {
         }
 
         self.client.call(
-            "Firewall",
-            "setPortForwarding",
-            json!({
-                "description": name,
-                "persistent": true,
-                "enable": true,
-                "protocol": protocol,
-                "destinationIPAddress": destination_ip.to_string(),
-                "internalPort": internal_port.to_string(),
-                "externalPort": external_port.to_string(),
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePrefix": "",
-                "id": name
-            }),
+            "sah.HomeNetwork.Firewall.NatPatIpv4",
+            "addRule",
+            forward_add_parameters(name, destination_ip, external_port, internal_port, protocol)?,
         )?;
-        self.client.call("Firewall", "commit", json!({}))?;
         Ok(())
     }
 
@@ -704,29 +700,12 @@ impl Router {
             .ok_or_else(|| anyhow!("Port forward named {name:?} was not found"))?;
         let protocol = field_string(entry, &["Protocol", "protocol"])
             .ok_or_else(|| anyhow!("Port forward entry has no protocol"))?;
-        let internal_port = field_string(entry, &["InternalPort", "internalPort"])
-            .ok_or_else(|| anyhow!("Port forward entry has no internal port"))?;
-        let external_port = field_string(entry, &["ExternalPort", "externalPort"])
-            .ok_or_else(|| anyhow!("Port forward entry has no external port"))?;
 
         self.client.call(
-            "Firewall",
-            "setPortForwarding",
-            json!({
-                "description": name,
-                "persistent": true,
-                "enable": false,
-                "protocol": protocol,
-                "destinationIPAddress": "0.0.0.0",
-                "internalPort": internal_port,
-                "externalPort": external_port,
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePrefix": "",
-                "id": name
-            }),
+            "sah.HomeNetwork.Firewall.NatPatIpv4",
+            "deleteRule",
+            forward_delete_parameters(name, &protocol)?,
         )?;
-        self.client.call("Firewall", "commit", json!({}))?;
         Ok(())
     }
 
@@ -749,7 +728,6 @@ impl Router {
         protocol: &str,
     ) -> Result<()> {
         Self::validate_ipv6_pinhole(name, destination, mac, port, protocol)?;
-        let mac = normalize_mac_address(mac)?;
 
         let existing = self.ipv6_pinholes()?;
         if find_pinhole(&existing, name)?.is_some() {
@@ -757,26 +735,11 @@ impl Router {
         }
 
         let response = self.client.call(
-            "Firewall",
-            "setPinhole",
-            json!({
-                "id": name,
-                "origin": "webui",
-                "sourceInterface": "data",
-                "sourcePort": "",
-                "destinationPort": port.to_string(),
-                "destinationIPAddress": destination.to_string(),
-                "destinationMACAddress": mac,
-                "sourcePrefix": "",
-                "protocol": protocol,
-                "ipversion": 6,
-                "enable": true,
-                "persistent": true
-            }),
+            "sah.HomeNetwork.Firewall.Pinhole",
+            "addPinhole",
+            ipv6_pinhole_add_parameters(name, destination, port, protocol)?,
         )?;
-        ensure_mutation_succeeded(&response, "Firewall.setPinhole")?;
-        let response = self.client.call("Firewall", "commit", json!({}))?;
-        ensure_mutation_succeeded(&response, "Firewall.commit")?;
+        ensure_mutation_succeeded(&response, "Firewall.Pinhole.addPinhole")?;
         Ok(())
     }
 
@@ -804,12 +767,12 @@ impl Router {
             .ok_or_else(|| anyhow!("IPv6 rule named {name:?} was not found"))?;
         let id = field_string(entry, &["id", "Id", "ID"])
             .ok_or_else(|| anyhow!("IPv6 rule has no identifier"))?;
-        let response = self
-            .client
-            .call("Firewall", "deletePinhole", json!({ "id": id }))?;
-        ensure_mutation_succeeded(&response, "Firewall.deletePinhole")?;
-        let response = self.client.call("Firewall", "commit", json!({}))?;
-        ensure_mutation_succeeded(&response, "Firewall.commit")?;
+        let response = self.client.call(
+            "sah.HomeNetwork.Firewall.Pinhole",
+            "deletePinhole",
+            ipv6_pinhole_delete_parameters(&id),
+        )?;
+        ensure_mutation_succeeded(&response, "Firewall.Pinhole.deletePinhole")?;
         Ok(())
     }
 
@@ -855,20 +818,18 @@ impl Router {
             bail!("DMZ is already configured; clear the existing rule first");
         }
         self.client.call(
-            "Firewall",
-            "setDMZ",
-            json!({
-                "id": "webui",
-                "sourceInterface": "data",
-                "destinationIPAddress": destination.to_string(),
-                "enable": true
-            }),
+            "sah.HomeNetwork.Firewall.DmzIpv4",
+            "setCurrentState",
+            dmz_parameters(Some(destination)),
         )
     }
 
     pub fn clear_dmz(&self) -> Result<Value> {
-        self.client
-            .call("Firewall", "deleteDMZ", json!({ "id": "webui" }))
+        self.client.call(
+            "sah.HomeNetwork.Firewall.DmzIpv4",
+            "setCurrentState",
+            dmz_parameters(None),
+        )
     }
 
     pub fn ipv6(&self) -> Result<Value> {
@@ -886,7 +847,7 @@ impl Router {
     pub fn set_timezone(&self, timezone: &str) -> Result<Value> {
         validate_timezone(timezone)?;
         self.client.call(
-            "Time",
+            "sah.Device.Time",
             "setLocalTimeZoneName",
             json!({ "timezone": timezone }),
         )
@@ -907,7 +868,11 @@ impl Router {
     }
 
     pub fn reboot(&self) -> Result<Value> {
-        self.client.call("NMC", "reboot", json!({}))
+        self.client.call(
+            "sah.Device.System",
+            "reboot",
+            json!({ "reason": "GUI_Reboot" }),
+        )
     }
 }
 
@@ -1282,12 +1247,13 @@ fn sanitize_dashboard_settings(value: &Value) -> Result<Value> {
 }
 
 fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
-    let state = value
-        .get("state")
-        .and_then(Value::as_str)
+    let raw = value
+        .get("passwordstate")
         .ok_or_else(|| anyhow!("Router returned an unexpected administrator password status"))?;
-    let state = match state {
-        "notSet" | "factoryDefault" => state,
+    // The firmware may report a numeric code instead of the strings used by the
+    // web UI. Its meaning is not documented, so it is reported as unknown.
+    let state = match raw.as_str() {
+        Some(state @ ("notSet" | "factoryDefault")) => state,
         _ => "unknown",
     };
     Ok(json!({ "state": state }))
@@ -1295,8 +1261,7 @@ fn sanitize_admin_password_state(value: &Value) -> Result<Value> {
 
 fn sanitize_interface_language(value: &Value) -> Result<String> {
     let language = value
-        .get("languageId")
-        .and_then(Value::as_str)
+        .as_str()
         .ok_or_else(|| anyhow!("Router returned an unexpected interface language"))?;
     if !matches!(language, "en" | "pl") {
         bail!("Router reported an unsupported interface language code");
@@ -1305,20 +1270,17 @@ fn sanitize_interface_language(value: &Value) -> Result<String> {
 }
 
 fn sanitize_internet_dashboard_state(value: &Value) -> Result<Value> {
-    let link = value
-        .get("linkModeList")
-        .and_then(Value::as_array)
-        .and_then(|links| links.first())
-        .ok_or_else(|| anyhow!("Router did not return the internet connection state"))?;
-    let state = link
-        .get("state")
+    // NMC.getWANStatus reports ConnectionState ("Connected" when the link is up)
+    // and LinkType (for example "gpon"). Addresses are intentionally dropped.
+    let connection = value
+        .get("ConnectionState")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("Response contains no internet connection state"))?;
-    let available = state == "OK";
+    let available = connection == "Connected";
     let mut clean = json!({ "available": available });
     if available {
-        let link_mode = link
-            .get("linkMode")
+        let link_mode = value
+            .get("LinkType")
             .and_then(Value::as_str)
             .ok_or_else(|| anyhow!("Response contains no internet connection type"))?;
         if link_mode.is_empty() || link_mode.len() > 64 || link_mode.chars().any(char::is_control) {
@@ -1331,7 +1293,7 @@ fn sanitize_internet_dashboard_state(value: &Value) -> Result<Value> {
 
 fn sanitize_repeater_schedule_state(value: &Value) -> Result<bool> {
     let schedules = value
-        .get("fullScheduleList")
+        .get("scheduleInfo")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("Router returned an unexpected repeater schedule format"))?;
     let Some(first) = schedules.first() else {
@@ -1344,15 +1306,8 @@ fn sanitize_repeater_schedule_state(value: &Value) -> Result<bool> {
 }
 
 fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
-    let status = value
-        .get("status")
-        .ok_or_else(|| anyhow!("Router did not report the power-saving profile status"))?;
-    if status != 0 && status != true {
-        bail!("Router returned an error status for power-saving profiles");
-    }
     let profiles = value
-        .get("profiles")
-        .and_then(Value::as_object)
+        .as_object()
         .ok_or_else(|| anyhow!("Router returned an unexpected list of power-saving profiles"))?;
     let mut result = serde_json::Map::new();
     for name in ["LED", "Light", "Deep", "WiFi", "WiFi5G"] {
@@ -1368,7 +1323,11 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
             Some(_) => bail!("Power-saving profile {name} has an invalid Activate status"),
         };
         let scheduled = if active {
-            profile.get("Type").and_then(Value::as_str) == Some("Scheduled")
+            profile
+                .get("Scheduler")
+                .and_then(|scheduler| scheduler.get("Type"))
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "Weekly")
         } else {
             false
         };
@@ -1380,17 +1339,321 @@ fn sanitize_dashboard_power_schedules(value: &Value) -> Result<Value> {
     Ok(Value::Object(result))
 }
 
+fn wifi_activation_parameters(enabled: bool) -> Value {
+    json!({ "isActivated": enabled })
+}
+
+fn firewall_level_parameters(level: &str) -> Value {
+    json!({ "ipVersion": "0", "level": level })
+}
+
+fn firewall_ping_parameters(enabled: bool) -> Value {
+    json!({ "isEnabledIPv4": enabled, "isEnabledIPv6": enabled })
+}
+
+fn dynamic_dns_add_parameters(
+    service: &str,
+    hostname: &str,
+    username: &str,
+    password: &str,
+) -> Value {
+    json!({
+        "service": service,
+        "hostname": hostname,
+        "login": username,
+        "password": password
+    })
+}
+
+fn dynamic_dns_delete_parameters(hostname: &str) -> Value {
+    json!(hostname)
+}
+
+fn web_ui_forward_protocol(protocol: &str) -> Result<&'static str> {
+    match protocol {
+        "6" | "tcp" => Ok("tcp"),
+        "17" | "udp" => Ok("udp"),
+        "6,17" | "tcp,udp" => Ok("tcp,udp"),
+        _ => bail!("Protocol must be TCP, UDP, or both"),
+    }
+}
+
+fn forward_add_parameters(
+    name: &str,
+    destination: Ipv4Addr,
+    external_port: u16,
+    internal_port: u16,
+    protocol: &str,
+) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "isEnabled": true,
+        "protocol": web_ui_forward_protocol(protocol)?,
+        "externalPortRange": external_port.to_string(),
+        "internalPortRange": internal_port.to_string(),
+        "ipAddress": destination.to_string(),
+        "sourcePrefix": "",
+        "destinationMACAddress": ""
+    }))
+}
+
+fn forward_delete_parameters(name: &str, protocol: &str) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "protocol": web_ui_forward_protocol(protocol)?
+    }))
+}
+
+fn web_ui_pinhole_protocol(protocol: &str) -> Result<&'static str> {
+    match protocol {
+        "6" | "tcp" => Ok("tcp"),
+        "17" | "udp" => Ok("udp"),
+        _ => bail!("IPv6 pinhole supports only TCP or UDP"),
+    }
+}
+
+fn ipv6_pinhole_add_parameters(
+    name: &str,
+    destination: Ipv6Addr,
+    port: u16,
+    protocol: &str,
+) -> Result<Value> {
+    Ok(json!({
+        "name": name,
+        "isEnabled": true,
+        "protocol": web_ui_pinhole_protocol(protocol)?,
+        "destinationPort": port.to_string(),
+        "destinationIPAddress": destination.to_string(),
+        "externalIp": ""
+    }))
+}
+
+fn dhcp_ipv4_configuration_with_lease_time(current: &Value, seconds: u32) -> Result<Value> {
+    let mut configuration = current
+        .as_object()
+        .cloned()
+        .ok_or_else(|| anyhow!("Router returned an unexpected DHCP configuration format"))?;
+    configuration.insert("dhcpLeaseTime".to_owned(), json!(seconds));
+    Ok(Value::Object(configuration))
+}
+
+/// The web UI reads `deviceId` from the top level of each entry, while the MAC
+/// address sits inside a nested object whose key varies per interface.
+fn find_device_id_by_mac(device_list: &Value, mac: &str) -> Option<String> {
+    device_list.as_array()?.iter().find_map(|device| {
+        let matches = field_string_case_insensitive(device, &["PhysAddress", "MACAddress"])
+            .or_else(|| nested_mac_address(device))
+            .is_some_and(|address| address.eq_ignore_ascii_case(mac));
+        if !matches {
+            return None;
+        }
+        field_string(device, &["deviceId"]).map(|id| id.to_ascii_uppercase())
+    })
+}
+
+fn nested_mac_address(device: &Value) -> Option<&str> {
+    device
+        .as_object()?
+        .values()
+        .filter_map(|nested| nested.get("macAddress").and_then(Value::as_str))
+        .next()
+}
+
+fn static_lease_parameters(device_id: &str, ip: &str) -> Value {
+    json!({ "deviceId": device_id, "ipAddress": ip })
+}
+
+fn static_lease_delete_parameters(device_id: &str) -> Value {
+    json!({ "deviceId": device_id })
+}
+
+fn ipv6_pinhole_delete_parameters(id: &str) -> Value {
+    json!({ "name": id })
+}
+
+fn dmz_parameters(destination: Option<Ipv4Addr>) -> Value {
+    match destination {
+        Some(destination) => json!({
+            "isDmzEnabled": true,
+            "ipAddress": destination.to_string()
+        }),
+        None => json!({ "isDmzEnabled": false }),
+    }
+}
+
+#[cfg(test)]
+mod webui_parameter_tests {
+    use super::*;
+
+    #[test]
+    fn firewall_level_matches_web_ui_shape() {
+        assert_eq!(
+            firewall_level_parameters("Medium"),
+            json!({ "ipVersion": "0", "level": "Medium" })
+        );
+    }
+
+    #[test]
+    fn firewall_ping_sets_both_ip_versions() {
+        assert_eq!(
+            firewall_ping_parameters(true),
+            json!({ "isEnabledIPv4": true, "isEnabledIPv6": true })
+        );
+        assert_eq!(
+            firewall_ping_parameters(false),
+            json!({ "isEnabledIPv4": false, "isEnabledIPv6": false })
+        );
+    }
+
+    #[test]
+    fn forward_add_matches_web_ui_nat_shape() {
+        let destination: Ipv4Addr = "192.168.1.25".parse().unwrap();
+        assert_eq!(
+            forward_add_parameters("web", destination, 8080, 80, "6,17").unwrap(),
+            json!({
+                "name": "web",
+                "isEnabled": true,
+                "protocol": "tcp,udp",
+                "externalPortRange": "8080",
+                "internalPortRange": "80",
+                "ipAddress": "192.168.1.25",
+                "sourcePrefix": "",
+                "destinationMACAddress": ""
+            })
+        );
+        assert!(forward_add_parameters("web", destination, 80, 80, "1").is_err());
+    }
+
+    #[test]
+    fn dynamic_dns_add_uses_login_field_name() {
+        assert_eq!(
+            dynamic_dns_add_parameters("dyndns.org", "host.example.com", "user", "secret"),
+            json!({
+                "service": "dyndns.org",
+                "hostname": "host.example.com",
+                "login": "user",
+                "password": "secret"
+            })
+        );
+    }
+
+    #[test]
+    fn dynamic_dns_delete_sends_hostname_string() {
+        assert_eq!(
+            dynamic_dns_delete_parameters("host.example.com"),
+            json!("host.example.com")
+        );
+    }
+
+    #[test]
+    fn forward_delete_uses_web_ui_protocol_names() {
+        assert_eq!(
+            forward_delete_parameters("web", "17").unwrap(),
+            json!({ "name": "web", "protocol": "udp" })
+        );
+        assert_eq!(
+            forward_delete_parameters("web", "tcp").unwrap(),
+            json!({ "name": "web", "protocol": "tcp" })
+        );
+    }
+
+    #[test]
+    fn dhcp_lease_time_replaces_only_that_field() {
+        let current = json!({
+            "isDhcpEnabled": true,
+            "ipAddress": "192.168.1.1",
+            "mask": "255.255.255.0",
+            "minIpAddress": "192.168.1.10",
+            "maxIpAddress": "192.168.1.200",
+            "dhcpLeaseTime": 86400,
+            "prefixLength": 24
+        });
+        let updated = dhcp_ipv4_configuration_with_lease_time(&current, 3600).unwrap();
+        assert_eq!(updated["dhcpLeaseTime"], json!(3600));
+        assert_eq!(updated["ipAddress"], json!("192.168.1.1"));
+        assert_eq!(updated["prefixLength"], json!(24));
+        assert!(dhcp_ipv4_configuration_with_lease_time(&json!("bad"), 3600).is_err());
+    }
+
+    #[test]
+    fn static_lease_uses_uppercase_device_id_from_matching_mac() {
+        let devices = json!([
+            { "deviceId": "eth-1", "PhysAddress": "aa:bb:cc:dd:ee:01" },
+            { "deviceId": "wifi-2", "PhysAddress": "AA:BB:CC:DD:EE:02" }
+        ]);
+        assert_eq!(
+            find_device_id_by_mac(&devices, "aa:bb:cc:dd:ee:02"),
+            Some("WIFI-2".to_owned())
+        );
+        assert_eq!(find_device_id_by_mac(&devices, "aa:bb:cc:dd:ee:99"), None);
+        assert_eq!(
+            static_lease_parameters("WIFI-2", "192.168.1.50"),
+            json!({ "deviceId": "WIFI-2", "ipAddress": "192.168.1.50" })
+        );
+        assert_eq!(
+            static_lease_delete_parameters("WIFI-2"),
+            json!({ "deviceId": "WIFI-2" })
+        );
+    }
+
+    #[test]
+    fn ipv6_pinhole_add_matches_web_ui_shape() {
+        let destination: Ipv6Addr = "2001:db8::25".parse().unwrap();
+        assert_eq!(
+            ipv6_pinhole_add_parameters("web", destination, 443, "6").unwrap(),
+            json!({
+                "name": "web",
+                "isEnabled": true,
+                "protocol": "tcp",
+                "destinationPort": "443",
+                "destinationIPAddress": "2001:db8::25",
+                "externalIp": ""
+            })
+        );
+        assert_eq!(
+            ipv6_pinhole_add_parameters("dns", destination, 53, "17")
+                .unwrap()
+                .get("protocol"),
+            Some(&json!("udp"))
+        );
+        assert!(ipv6_pinhole_add_parameters("web", destination, 443, "1").is_err());
+    }
+
+    #[test]
+    fn ipv6_pinhole_delete_sends_rule_name() {
+        assert_eq!(
+            ipv6_pinhole_delete_parameters("web"),
+            json!({ "name": "web" })
+        );
+    }
+
+    #[test]
+    fn dmz_parameters_enable_or_disable_the_rule() {
+        let destination: Ipv4Addr = "192.168.1.25".parse().unwrap();
+        assert_eq!(
+            dmz_parameters(Some(destination)),
+            json!({ "isDmzEnabled": true, "ipAddress": "192.168.1.25" })
+        );
+        assert_eq!(dmz_parameters(None), json!({ "isDmzEnabled": false }));
+    }
+}
+
 fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
-    let access_points = value
-        .get("accessPointList")
-        .and_then(Value::as_array)
-        .ok_or_else(|| anyhow!("Router returned an unexpected list of IoT access points"))?;
+    let base = value
+        .get("base")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of Wi-Fi interfaces"))?;
+    let wlanvap = value
+        .get("wlanvap")
+        .and_then(Value::as_object)
+        .ok_or_else(|| anyhow!("Router returned an unexpected list of Wi-Fi access points"))?;
     let mut any_enabled = false;
-    for access_point in access_points {
-        let enabled = access_point
-            .get("isEnabled")
+    for name in wlanvap.keys() {
+        let enabled = base
+            .get(name)
+            .and_then(|interface| interface.get("Enable"))
             .and_then(Value::as_bool)
-            .ok_or_else(|| anyhow!("IoT access point has no valid isEnabled status"))?;
+            .ok_or_else(|| anyhow!("Wi-Fi access point has no valid Enable status"))?;
         any_enabled |= enabled;
     }
     Ok(any_enabled)
@@ -1398,26 +1661,26 @@ fn sanitize_wifi_iot_enabled(value: &Value) -> Result<bool> {
 
 fn sanitize_television_dashboard_state(value: &Value) -> Result<bool> {
     let state = value
-        .get("state")
+        .get("IPTVStatus")
+        .and_then(Value::as_str)
         .ok_or_else(|| anyhow!("Router did not report the IPTV state"))?;
     match state {
-        Value::Bool(enabled) => Ok(*enabled),
-        Value::Number(enabled)
-            if enabled
-                .as_i64()
-                .is_some_and(|value| (0..=1).contains(&value)) =>
-        {
-            Ok(enabled.as_i64() == Some(1))
-        }
+        "Unavailable" | "Disabled" => Ok(false),
+        "Enabled" => Ok(true),
         _ => bail!("Router returned an unsupported IPTV state format"),
     }
 }
 
-fn sanitize_voice_dashboard_status(trunk: &Value, calls: &Value) -> Result<Value> {
-    let enabled = trunk
-        .get("isEnabled")
-        .and_then(Value::as_bool)
+fn sanitize_voice_dashboard_status(trunks: &Value, calls: &Value) -> Result<Value> {
+    let trunk = trunks
+        .as_array()
+        .and_then(|trunks| trunks.first())
         .ok_or_else(|| anyhow!("Router did not report the phone line status"))?;
+    let enabled = match trunk.get("enable").and_then(Value::as_str) {
+        Some("Enabled") => true,
+        Some("Disabled") => false,
+        _ => bail!("Router returned an unsupported phone line status"),
+    };
     let calls = calls
         .as_array()
         .ok_or_else(|| anyhow!("Router returned an unexpected call list"))?;
@@ -1436,6 +1699,7 @@ fn sanitize_voice_dashboard_status(trunk: &Value, calls: &Value) -> Result<Value
     Ok(json!({ "lineEnabled": enabled, "missedCalls": missed_calls }))
 }
 
+#[cfg(test)]
 fn set_dashboard_favorite_in_settings(
     settings: &mut Value,
     tile: &str,
@@ -2157,6 +2421,7 @@ mod tests {
         validate_dhcp_lease_time, validate_dynamic_dns_hostname, validate_forward_name,
         validate_forward_protocol, validate_lan_config, validate_lan_destination,
         validate_pinhole_destination, validate_pinhole_protocol, validate_timezone,
+        wifi_activation_parameters,
     };
 
     #[test]
@@ -2627,7 +2892,8 @@ mod tests {
     #[test]
     fn admin_password_state_exposes_only_nonsecret_state() {
         let status = serde_json::json!({
-            "state": "factoryDefault",
+            "name": "admin",
+            "passwordstate": "factoryDefault",
             "password": "must-not-leak",
             "passwordHash": "also-must-not-leak"
         });
@@ -2636,7 +2902,8 @@ mod tests {
             serde_json::json!({ "state": "factoryDefault" })
         );
         assert_eq!(
-            sanitize_admin_password_state(&serde_json::json!({ "state": "unexpected" })).unwrap(),
+            sanitize_admin_password_state(&serde_json::json!({ "passwordstate": "unexpected" }))
+                .unwrap(),
             serde_json::json!({ "state": "unknown" })
         );
         assert!(sanitize_admin_password_state(&serde_json::json!({})).is_err());
@@ -2645,51 +2912,51 @@ mod tests {
     #[test]
     fn interface_language_is_validated_against_firmware_languages() {
         assert_eq!(
-            sanitize_interface_language(&serde_json::json!({ "languageId": "pl" })).unwrap(),
+            sanitize_interface_language(&serde_json::json!("pl")).unwrap(),
             "pl"
         );
-        assert!(sanitize_interface_language(&serde_json::json!({ "languageId": "fr" })).is_err());
+        assert!(sanitize_interface_language(&serde_json::json!("fr")).is_err());
         assert!(sanitize_interface_language(&serde_json::json!({})).is_err());
     }
 
     #[test]
     fn dashboard_connection_state_is_allowlisted() {
         let state = serde_json::json!({
-            "linkModeList": [{ "state": "OK", "linkMode": "VDSL", "password": "private" }],
-            "metadata": "private"
+            "ConnectionState": "Connected",
+            "LinkType": "gpon",
+            "IPAddress": "private",
+            "password": "private"
         });
         let clean = sanitize_internet_dashboard_state(&state).unwrap();
         assert_eq!(clean["available"], true);
-        assert_eq!(clean["linkMode"], "VDSL");
+        assert_eq!(clean["linkMode"], "gpon");
         assert!(!clean.to_string().contains("private"));
         let disconnected = sanitize_internet_dashboard_state(&serde_json::json!({
-            "linkModeList": [{ "state": "DOWN" }]
+            "ConnectionState": "Disconnected"
         }))
         .unwrap();
         assert_eq!(disconnected["available"], false);
         assert!(disconnected.get("linkMode").is_none());
-        assert!(
-            sanitize_internet_dashboard_state(&serde_json::json!({ "linkModeList": [] })).is_err()
-        );
+        assert!(sanitize_internet_dashboard_state(&serde_json::json!({})).is_err());
     }
 
     #[test]
     fn repeater_schedule_state_matches_dashboard_tile() {
         assert!(
             sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": [{ "enable": true }]
+                "scheduleInfo": [{ "enable": true }]
             }))
             .unwrap()
         );
         assert!(
             !sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": []
+                "scheduleInfo": []
             }))
             .unwrap()
         );
         assert!(
             sanitize_repeater_schedule_state(&serde_json::json!({
-                "fullScheduleList": [{ "enable": "yes" }]
+                "scheduleInfo": [{ "enable": "yes" }]
             }))
             .is_err()
         );
@@ -2698,84 +2965,88 @@ mod tests {
     #[test]
     fn power_schedules_only_return_known_profile_states() {
         let raw = serde_json::json!({
-            "status": 0,
-            "profiles": {
-                "LED": { "Activate": true, "Type": "Scheduled", "password": "private" },
-                "WiFi": { "Activate": false, "Type": "Always" },
-                "unknown": { "Activate": true, "Type": "Scheduled" }
-            }
+            "LED": { "Activate": true, "Scheduler": { "Type": "Weekly" }, "password": "private" },
+            "WiFi": { "Activate": false, "Scheduler": { "Type": "Weekly" } },
+            "unknown": { "Activate": true, "Scheduler": { "Type": "Weekly" } }
         });
         let clean = sanitize_dashboard_power_schedules(&raw).unwrap();
         assert_eq!(clean["LED"], true);
         assert_eq!(clean["WiFi"], false);
         assert!(clean.get("unknown").is_none());
         assert!(!clean.to_string().contains("private"));
-        assert!(
-            sanitize_dashboard_power_schedules(&serde_json::json!({
-                "status": 1,
-                "profiles": { "LED": { "Activate": true, "Type": "Scheduled" } }
-            }))
-            .is_err()
-        );
+        assert!(sanitize_dashboard_power_schedules(&serde_json::json!({ "unknown": {} })).is_err());
     }
 
     #[test]
     fn wifi_iot_status_requires_boolean_access_point_states() {
-        assert!(sanitize_wifi_iot_enabled(&serde_json::json!({
-            "accessPointList": [{ "isEnabled": false }, { "isEnabled": true, "ssid": "private" }]
-        }))
-        .unwrap());
+        assert!(
+            sanitize_wifi_iot_enabled(&serde_json::json!({
+                "base": { "vap2g0sec": { "Enable": false }, "vap5g0sec": { "Enable": true } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" }, "vap5g0sec": { "SSID": "private" } }
+            }))
+            .unwrap()
+        );
         assert!(
             !sanitize_wifi_iot_enabled(&serde_json::json!({
-                "accessPointList": [{ "isEnabled": false }]
+                "base": { "vap2g0sec": { "Enable": false } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" } }
             }))
             .unwrap()
         );
         assert!(
             sanitize_wifi_iot_enabled(&serde_json::json!({
-                "accessPointList": [{ "isEnabled": "true" }]
+                "base": { "vap2g0sec": { "Enable": "true" } },
+                "wlanvap": { "vap2g0sec": { "SSID": "private" } }
             }))
             .is_err()
         );
     }
 
     #[test]
-    fn iptv_status_uses_only_safe_truth_value() {
+    fn iptv_status_maps_web_ui_state_string() {
         assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": true })).unwrap()
+            !sanitize_television_dashboard_state(
+                &serde_json::json!({ "IPTVStatus": "Unavailable" })
+            )
+            .unwrap()
         );
         assert!(
-            !sanitize_television_dashboard_state(&serde_json::json!({ "state": false })).unwrap()
-        );
-        assert!(sanitize_television_dashboard_state(&serde_json::json!({ "state": 1 })).unwrap());
-        assert!(!sanitize_television_dashboard_state(&serde_json::json!({ "state": 0 })).unwrap());
-        assert!(sanitize_television_dashboard_state(&serde_json::json!({ "state": 2 })).is_err());
-        assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": "false" })).is_err()
+            sanitize_television_dashboard_state(&serde_json::json!({ "IPTVStatus": "Enabled" }))
+                .unwrap()
         );
         assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": "active" })).is_err()
-        );
-        assert!(
-            sanitize_television_dashboard_state(&serde_json::json!({ "state": { "secret": 1 } }))
+            sanitize_television_dashboard_state(&serde_json::json!({ "IPTVStatus": "bogus" }))
                 .is_err()
+        );
+        assert!(sanitize_television_dashboard_state(&serde_json::json!({})).is_err());
+    }
+
+    #[test]
+    fn wifi_activation_body_matches_web_ui_parameter() {
+        assert_eq!(
+            wifi_activation_parameters(true),
+            serde_json::json!({ "isActivated": true })
+        );
+        assert_eq!(
+            wifi_activation_parameters(false),
+            serde_json::json!({ "isActivated": false })
         );
     }
 
     #[test]
     fn voice_dashboard_summary_hides_call_details() {
-        let trunk = serde_json::json!({ "isEnabled": true, "username": "private" });
+        let trunks = serde_json::json!([{ "enable": "Enabled", "username": "private" }]);
         let calls = serde_json::json!([
             { "type": "missed", "phoneNumber": "+48123456789" },
             { "type": "outgoing", "phoneNumber": "+48987654321" },
             { "type": "missed", "phoneNumber": "+48000000000" }
         ]);
-        let clean = sanitize_voice_dashboard_status(&trunk, &calls).unwrap();
+        let clean = sanitize_voice_dashboard_status(&trunks, &calls).unwrap();
         assert_eq!(clean["lineEnabled"], true);
         assert_eq!(clean["missedCalls"], 2);
         assert!(!clean.to_string().contains("private"));
         assert!(!clean.to_string().contains("+48"));
-        assert!(sanitize_voice_dashboard_status(&trunk, &serde_json::json!({})).is_err());
+        assert!(sanitize_voice_dashboard_status(&trunks, &serde_json::json!({})).is_err());
     }
 
     #[test]
@@ -2863,5 +3134,25 @@ mod tests {
             sanitize_backup_status(&status),
             serde_json::json!({ "ConfigDate": "2026-10-31T12:00:00Z" })
         );
+    }
+}
+
+#[cfg(test)]
+mod device_lookup_tests {
+    use super::find_device_id_by_mac;
+
+    #[test]
+    fn finds_device_id_by_nested_mac_like_web_ui() {
+        let list = serde_json::json!([
+            { "deviceId": "abc-1", "deviceName": "x",
+              "ethernet": { "macAddress": "AA:BB:CC:DD:EE:01", "ipIpv4": "192.0.2.10" } },
+            { "deviceId": "def-2", "deviceName": "y",
+              "wifi": { "macAddress": "AA:BB:CC:DD:EE:02" } }
+        ]);
+        assert_eq!(
+            find_device_id_by_mac(&list, "aa:bb:cc:dd:ee:02").as_deref(),
+            Some("DEF-2")
+        );
+        assert_eq!(find_device_id_by_mac(&list, "00:00:00:00:00:00"), None);
     }
 }
